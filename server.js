@@ -1,19 +1,23 @@
 /**
- * Agent Excel Demo - Server
+ * Agent Platform Demo - Server
  *
  * 架构:
  *   用户浏览器 ◀──WebSocket──▶ Server ◀──HTTP──▶ LLM API
  *        │                        │
- *   Luckysheet (Excel组件)    Master Agent + Excel Agent
+ *   页面内容 + 操作               Master Agent (路由) + 子 Agent (执行)
  *
- * 通讯流:
- *   1. 用户在浏览器输入自然语言
- *   2. 前端通过 WebSocket 发给 Server
- *   3. Server 的 Master Agent 判断意图
- *   4. 如果是 Excel 操作，转发给 Excel Agent
- *   5. Excel Agent 调用 LLM 生成 tool_calls
- *   6. tool_calls 通过 WebSocket 发回浏览器执行
- *   7. 执行结果返回给 Excel Agent，最终回复用户
+ * 页面:
+ *   /dashboard - 仪表盘（概览）
+ *   /files     - 文件管理
+ *   /notes     - 笔记
+ *   /excel     - Excel 编辑器
+ *   /settings  - 设置
+ *
+ * Agent 架构:
+ *   Master Agent → 分析页面上下文，生成推荐问题，路由到子 Agent
+ *     ├── Excel Agent → 操作 Excel（function calling）
+ *     ├── Summary Agent → 总结摘要（纯 LLM）
+ *     └── Chat Agent → 通用对话（纯 LLM）
  */
 
 require('dotenv').config();
@@ -30,45 +34,30 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ==========================================
-// LLM 配置 - 支持任何 OpenAI 兼容 API
+// LLM 配置
 // ==========================================
 const LLM_CONFIG = {
-  // 修改为你的 LLM API 地址
   baseURL: process.env.LLM_BASE_URL || 'https://api.openai.com/v1',
   apiKey: process.env.LLM_API_KEY || 'your-api-key',
   model: process.env.LLM_MODEL || 'gpt-4o-mini',
 };
 
 async function callLLM(messages, tools = null) {
-  const body = {
-    model: LLM_CONFIG.model,
-    messages,
-    temperature: 0.1,
-  };
-  if (tools) {
-    body.tools = tools;
-    body.tool_choice = 'auto';
-  }
+  const body = { model: LLM_CONFIG.model, messages, temperature: 0.1 };
+  if (tools) { body.tools = tools; body.tool_choice = 'auto'; }
 
   const resp = await fetch(`${LLM_CONFIG.baseURL}/chat/completions`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${LLM_CONFIG.apiKey}`,
-    },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${LLM_CONFIG.apiKey}` },
     body: JSON.stringify(body),
   });
 
-  if (!resp.ok) {
-    const text = await resp.text();
-    throw new Error(`LLM API error: ${resp.status} ${text}`);
-  }
-
+  if (!resp.ok) throw new Error(`LLM API error: ${resp.status}`);
   return resp.json();
 }
 
 // ==========================================
-// Excel Tools 定义 - Excel Agent 能调用的工具
+// Excel Tools 定义
 // ==========================================
 const EXCEL_TOOLS = [
   {
@@ -90,13 +79,13 @@ const EXCEL_TOOLS = [
     type: 'function',
     function: {
       name: 'set_cell_value',
-      description: '设置指定单元格的值或公式。row 为行号(数字，从1开始)，col 为列号(字母)，value 为要设置的值或公式(如 =SUM(B1:B10))',
+      description: '设置指定单元格的值或公式。公式以 = 开头，如 =SUM(B1:B10)',
       parameters: {
         type: 'object',
         properties: {
           row: { type: 'number', description: '行号，从1开始' },
-          col: { type: 'string', description: '列号字母，如 A, B, C' },
-          value: { type: 'string', description: '要设置的值，公式以=开头' },
+          col: { type: 'string', description: '列号字母' },
+          value: { type: 'string', description: '要设置的值或公式' },
         },
         required: ['row', 'col', 'value'],
       },
@@ -123,17 +112,13 @@ const EXCEL_TOOLS = [
     type: 'function',
     function: {
       name: 'set_range_values',
-      description: '批量设置一个区域的值。从指定起始单元格开始，按二维数组填充。',
+      description: '批量设置一个区域的值。',
       parameters: {
         type: 'object',
         properties: {
           startRow: { type: 'number', description: '起始行号' },
           startCol: { type: 'string', description: '起始列号字母' },
-          values: {
-            type: 'array',
-            items: { type: 'array', items: { type: 'string' } },
-            description: '二维数组，每个元素是要设置的值或公式',
-          },
+          values: { type: 'array', items: { type: 'array', items: { type: 'string' } }, description: '二维数组' },
         },
         required: ['startRow', 'startCol', 'values'],
       },
@@ -143,7 +128,7 @@ const EXCEL_TOOLS = [
     type: 'function',
     function: {
       name: 'get_sheet_info',
-      description: '获取当前工作表的基本信息：总行数、总列数、已有数据的范围',
+      description: '获取当前工作表的基本信息',
       parameters: { type: 'object', properties: {} },
     },
   },
@@ -151,13 +136,13 @@ const EXCEL_TOOLS = [
     type: 'function',
     function: {
       name: 'apply_cell_style',
-      description: '设置单元格样式（加粗、背景色、字体大小等）',
+      description: '设置单元格样式（加粗、背景色等）',
       parameters: {
         type: 'object',
         properties: {
           row: { type: 'number', description: '行号' },
           col: { type: 'string', description: '列号字母' },
-          bold: { type: 'boolean', description: '是否加粗' },
+          bold: { type: 'boolean' },
           bgColor: { type: 'string', description: '背景色，如 #ffff00' },
           fontColor: { type: 'string', description: '字体颜色' },
           fontSize: { type: 'number', description: '字体大小' },
@@ -166,116 +151,171 @@ const EXCEL_TOOLS = [
       },
     },
   },
-  {
-    type: 'function',
-    function: {
-      name: 'insert_formula',
-      description: '在指定单元格插入公式，如 =SUM, =AVERAGE, =MAX 等',
-      parameters: {
-        type: 'object',
-        properties: {
-          row: { type: 'number', description: '行号' },
-          col: { type: 'string', description: '列号字母' },
-          formula: { type: 'string', description: '公式，如 =SUM(B1:B10)' },
-        },
-        required: ['row', 'col', 'formula'],
-      },
-    },
-  },
 ];
 
 // ==========================================
-// Browser Connections - 浏览器端 Tool Runtime 连接
+// 模拟数据
 // ==========================================
-const browserClients = new Map(); // sessionId -> ws
+const MOCK_FILES = [
+  { id: 1, name: '销售数据_Q1.xlsx', type: 'excel', size: '24KB', modified: '2026-05-25', owner: '姚磊' },
+  { id: 2, name: '项目预算.xlsx', type: 'excel', size: '18KB', modified: '2026-05-24', owner: '姚磊' },
+  { id: 3, name: '员工花名册.xlsx', type: 'excel', size: '32KB', modified: '2026-05-23', owner: '姚磊' },
+];
 
-// Pending tool call requests
-const pendingRequests = new Map(); // requestId -> { resolve, reject, timer }
+const MOCK_NOTES = [
+  { id: 1, title: '项目周会纪要 - 第21周', content: '本周完成了用户认证模块的重构，性能提升约 40%。下周计划：1）完成支付集成测试 2）优化数据库查询 3）前端国际化支持。', date: '2026-05-24' },
+  { id: 2, title: '技术选型笔记：消息队列', content: '对比了 Kafka、RabbitMQ 和 Pulsar。最终选择 RabbitMQ，原因：轻量、支持多种消息模式、Python/Go 客户端成熟。', date: '2026-05-22' },
+  { id: 3, title: '读书笔记：Designing Data-Intensive Applications', content: '第三章笔记：存储引擎分为 log-structured 和 page-oriented 两大类。LSM-Tree 适合写多读少，B-Tree 适合读多写少。', date: '2026-05-20' },
+];
+
+const MOCK_DASHBOARD = {
+  stats: { files: 3, notes: 3, tasks: 12, completedTasks: 8 },
+  recentActivity: [
+    { action: '编辑了', target: '销售数据_Q1.xlsx', time: '2小时前' },
+    { action: '创建了', target: '项目周会纪要 - 第21周', time: '昨天' },
+    { action: '上传了', target: '员工花名册.xlsx', time: '3天前' },
+  ],
+};
 
 // ==========================================
-// Master Agent - 调度器
+// 连接管理
 // ==========================================
-async function masterAgent(userMessage, sessionId) {
-  // Master Agent 判断用户意图
-  // 这里简化：所有操作都交给 Excel Agent
-  // 实际项目中，Master Agent 会有自己的 LLM 来做路由判断
-  console.log(`[Master] 收到用户消息: ${userMessage}`);
+const browserClients = new Map();
+const pendingRequests = new Map();
 
-  const result = await excelAgent(userMessage, sessionId);
-  return result;
+// ==========================================
+// Master Agent - 有自己的 LLM 做路由
+// ==========================================
+async function masterAgent(userMessage, sessionId, pageContext) {
+  const browserWs = browserClients.get(sessionId);
+  if (!browserWs) return { reply: '错误：浏览器未连接', suggestions: [] };
+
+  const { page, data } = pageContext;
+
+  // 1. Master Agent 判断意图
+  console.log(`[Master] 页面=${page}, 消息=${userMessage}`);
+
+  const routePrompt = `你是一个智能助手系统的路由器。根据用户消息和当前页面上下文，判断应该交给哪个子 Agent 处理。
+
+当前页面: ${page}
+页面数据摘要: ${data ? JSON.stringify(data).slice(0, 500) : '无'}
+
+可选子 Agent:
+- "excel": Excel 数据操作（读写单元格、公式、样式）— 只有当用户明确要操作 Excel 数据时才选
+- "general": 通用对话（总结、问答、建议、分析）— 其他所有情况
+
+回复格式（只回复一个词）:
+excel 或 general`;
+
+  const routeResponse = await callLLM([
+    { role: 'system', content: routePrompt },
+    { role: 'user', content: userMessage },
+  ]);
+
+  const agentType = routeResponse.choices[0].message.content.trim().toLowerCase();
+  console.log(`[Master] 路由到: ${agentType}`);
+
+  // 2. 路由到对应子 Agent
+  if (agentType === 'excel' && page === 'excel') {
+    return await excelAgent(userMessage, sessionId);
+  } else {
+    return await generalAgent(userMessage, pageContext);
+  }
 }
 
 // ==========================================
-// Excel Agent - Excel 操作专家
+// 生成页面推荐问题
+// ==========================================
+async function generateSuggestions(pageContext) {
+  const { page, data } = pageContext;
+
+  const prompt = `你是一个智能助手。根据当前页面内容和类型，推荐 3-4 个用户可能会问的问题。
+
+当前页面: ${page}
+页面数据: ${data ? JSON.stringify(data).slice(0, 800) : '无数据'}
+
+${page === 'excel' ? `对于 Excel 页面，推荐的问题应该包括：
+1. 对数据内容的总结分析
+2. 常见的 Excel 操作建议（如求和、排序、条件标注等）
+请用中文回复，每行一个问题，不要编号，不要其他内容。` :
+`推荐一些实用的、基于页面内容的问题。
+请用中文回复，每行一个问题，不要编号，不要其他内容。`}`;
+
+  const response = await callLLM([
+    { role: 'system', content: prompt },
+    { role: 'user', content: '请推荐问题' },
+  ]);
+
+  const text = response.choices[0].message.content.trim();
+  return text.split('\n').filter(s => s.trim());
+}
+
+// ==========================================
+// Excel Agent - 子 Agent
 // ==========================================
 async function excelAgent(task, sessionId) {
-  console.log(`[ExcelAgent] 处理任务: ${task}`);
+  console.log(`[ExcelAgent] 处理: ${task}`);
 
-  const browserWs = browserClients.get(sessionId);
-  if (!browserWs) {
-    return '错误：浏览器未连接，无法操作 Excel';
-  }
-
-  // Excel Agent 的对话历史（多轮 tool calling）
   const messages = [
     {
       role: 'system',
       content: `你是一个 Excel 操作助手。用户会用自然语言描述想要对 Excel 表格做的操作。
 你需要将用户的意图转换为具体的 Excel 工具调用。
-
 规则：
 1. 先了解当前数据（必要时调用 get_sheet_info 或 get_range_values）
 2. 然后执行操作
 3. 操作完成后，用简洁的中文告诉用户你做了什么
-4. 对于求和、平均值等计算，使用公式（如 =SUM(B1:B10)）而不是手动计算`,
+4. 对于求和、平均值等计算，使用公式（如 =SUM(B1:B10)）`,
     },
     { role: 'user', content: task },
   ];
 
-  // 多轮 tool calling loop
   const MAX_ROUNDS = 10;
   for (let round = 0; round < MAX_ROUNDS; round++) {
-    console.log(`[ExcelAgent] LLM 调用轮次 ${round + 1}`);
     const response = await callLLM(messages, EXCEL_TOOLS);
-    const choice = response.choices[0];
-    const assistantMsg = choice.message;
-
+    const assistantMsg = response.choices[0].message;
     messages.push(assistantMsg);
 
-    // 如果没有 tool_calls，说明 LLM 给出了最终回复
     if (!assistantMsg.tool_calls || assistantMsg.tool_calls.length === 0) {
-      console.log(`[ExcelAgent] 最终回复: ${assistantMsg.content}`);
-      return assistantMsg.content;
+      return { reply: assistantMsg.content, suggestions: [] };
     }
 
-    // 执行每个 tool_call
     for (const toolCall of assistantMsg.tool_calls) {
       const { name, arguments: argsStr } = toolCall.function;
       const args = JSON.parse(argsStr);
-      console.log(`[ExcelAgent] 调用工具: ${name}`, args);
+      console.log(`[ExcelAgent] 工具: ${name}`, JSON.stringify(args));
 
       try {
-        // 通过 WebSocket 发给浏览器端执行
         const result = await executeOnBrowser(sessionId, name, args);
-        console.log(`[ExcelAgent] 工具结果: ${JSON.stringify(result).slice(0, 200)}`);
-
-        messages.push({
-          role: 'tool',
-          tool_call_id: toolCall.id,
-          content: typeof result === 'string' ? result : JSON.stringify(result),
-        });
+        messages.push({ role: 'tool', tool_call_id: toolCall.id, content: typeof result === 'string' ? result : JSON.stringify(result) });
       } catch (err) {
-        console.error(`[ExcelAgent] 工具执行失败: ${err.message}`);
-        messages.push({
-          role: 'tool',
-          tool_call_id: toolCall.id,
-          content: `错误: ${err.message}`,
-        });
+        messages.push({ role: 'tool', tool_call_id: toolCall.id, content: `错误: ${err.message}` });
       }
     }
   }
 
-  return '操作轮次过多，请简化你的请求。';
+  return { reply: '操作轮次过多，请简化请求。', suggestions: [] };
+}
+
+// ==========================================
+// General Agent - 子 Agent（通用对话）
+// ==========================================
+async function generalAgent(userMessage, pageContext) {
+  console.log(`[GeneralAgent] 处理: ${userMessage}`);
+
+  const { page, data } = pageContext;
+
+  const response = await callLLM([
+    {
+      role: 'system',
+      content: `你是一个智能助手。当前用户在浏览 "${page}" 页面。
+页面数据: ${data ? JSON.stringify(data).slice(0, 1000) : '无数据'}
+请根据上下文用中文回答用户的问题。回答要简洁有用。`,
+    },
+    { role: 'user', content: userMessage },
+  ]);
+
+  return { reply: response.choices[0].message.content, suggestions: [] };
 }
 
 // ==========================================
@@ -284,17 +324,10 @@ async function excelAgent(task, sessionId) {
 function executeOnBrowser(sessionId, method, params) {
   return new Promise((resolve, reject) => {
     const ws = browserClients.get(sessionId);
-    if (!ws) {
-      reject(new Error('浏览器未连接'));
-      return;
-    }
+    if (!ws) { reject(new Error('浏览器未连接')); return; }
 
     const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const timeout = setTimeout(() => {
-      pendingRequests.delete(requestId);
-      reject(new Error('浏览器执行超时'));
-    }, 30000);
-
+    const timeout = setTimeout(() => { pendingRequests.delete(requestId); reject(new Error('超时')); }, 30000);
     pendingRequests.set(requestId, { resolve, reject, timeout });
 
     ws.send(JSON.stringify({ type: 'tool_call', id: requestId, method, params }));
@@ -302,74 +335,65 @@ function executeOnBrowser(sessionId, method, params) {
 }
 
 // ==========================================
-// WebSocket 连接处理
+// WebSocket
 // ==========================================
 wss.on('connection', (ws) => {
-  console.log('[WS] 浏览器客户端已连接');
   let sessionId = null;
 
-  ws.on('message', async (data) => {
-    const msg = JSON.parse(data);
+  ws.on('message', async (raw) => {
+    const msg = JSON.parse(raw);
 
-    // 浏览器端注册
     if (msg.type === 'register') {
-      sessionId = msg.sessionId || `session-${Date.now()}`;
+      sessionId = msg.sessionId || `s-${Date.now()}`;
       browserClients.set(sessionId, ws);
       ws.send(JSON.stringify({ type: 'registered', sessionId }));
-      console.log(`[WS] 注册会话: ${sessionId}`);
       return;
     }
 
-    // 浏览器端返回工具执行结果
     if (msg.type === 'tool_result') {
-      const pending = pendingRequests.get(msg.id);
-      if (pending) {
-        clearTimeout(pending.timer);
-        pendingRequests.delete(msg.id);
-        if (msg.error) {
-          pending.reject(new Error(msg.error));
-        } else {
-          pending.resolve(msg.result);
-        }
-      }
+      const p = pendingRequests.get(msg.id);
+      if (p) { clearTimeout(p.timeout); pendingRequests.delete(msg.id); msg.error ? p.reject(new Error(msg.error)) : p.resolve(msg.result); }
       return;
     }
 
-    // 用户聊天消息（从前端发来）
     if (msg.type === 'chat') {
       try {
         ws.send(JSON.stringify({ type: 'status', message: '正在思考...' }));
-        const reply = await masterAgent(msg.content, sessionId);
-        ws.send(JSON.stringify({ type: 'chat_reply', content: reply }));
+        const result = await masterAgent(msg.content, sessionId, msg.pageContext || {});
+        ws.send(JSON.stringify({ type: 'chat_reply', content: result.reply }));
       } catch (err) {
-        console.error('[WS] 处理消息失败:', err);
         ws.send(JSON.stringify({ type: 'chat_reply', content: `出错了: ${err.message}` }));
       }
       return;
     }
-  });
 
-  ws.on('close', () => {
-    if (sessionId) {
-      browserClients.delete(sessionId);
-      console.log(`[WS] 断开会话: ${sessionId}`);
+    if (msg.type === 'get_suggestions') {
+      try {
+        const suggestions = await generateSuggestions(msg.pageContext || {});
+        ws.send(JSON.stringify({ type: 'suggestions', suggestions }));
+      } catch (err) {
+        ws.send(JSON.stringify({ type: 'suggestions', suggestions: [] }));
+      }
+      return;
     }
   });
+
+  ws.on('close', () => { if (sessionId) browserClients.delete(sessionId); });
 });
+
+// ==========================================
+// API routes（供前端获取模拟数据）
+// ==========================================
+app.get('/api/dashboard', (req, res) => res.json(MOCK_DASHBOARD));
+app.get('/api/files', (req, res) => res.json(MOCK_FILES));
+app.get('/api/notes', (req, res) => res.json(MOCK_NOTES));
 
 // ==========================================
 // 启动
 // ==========================================
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`\n🚀 Agent Excel Demo 已启动!`);
-  console.log(`   打开浏览器访问: http://localhost:${PORT}`);
-  console.log(`\n📋 配置:`);
-  console.log(`   LLM API: ${LLM_CONFIG.baseURL}`);
-  console.log(`   Model:   ${LLM_CONFIG.model}`);
-  console.log(`\n💡 环境变量:`);
-  console.log(`   LLM_BASE_URL  - LLM API 地址`);
-  console.log(`   LLM_API_KEY   - API Key`);
-  console.log(`   LLM_MODEL     - 模型名称`);
-  console.log(`   PORT          - 服务端口 (默认 3000)\n`);
+  console.log(`\n🚀 Agent Platform 已启动!`);
+  console.log(`   http://localhost:${PORT}`);
+  console.log(`   LLM: ${LLM_CONFIG.baseURL} / ${LLM_CONFIG.model}\n`);
 });

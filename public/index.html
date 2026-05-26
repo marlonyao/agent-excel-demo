@@ -3,445 +3,514 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Agent Excel Demo</title>
-  <!-- Luckysheet CDN -->
+  <title>Agent Platform Demo</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/luckysheet@2.1.13/dist/plugins/css/pluginsCss.css" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/luckysheet@2.1.13/dist/plugins/plugins.css" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/luckysheet@2.1.13/dist/css/luckysheet.css" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/luckysheet@2.1.13/dist/assets/iconfont/iconfont.css" />
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; height: 100vh; display: flex; flex-direction: column; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
 
-    /* Header */
     .header {
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white; padding: 12px 24px;
+      color: white; padding: 10px 24px;
       display: flex; align-items: center; justify-content: space-between;
       box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      height: 48px; flex-shrink: 0;
     }
-    .header h1 { font-size: 18px; font-weight: 600; }
-    .header .status { font-size: 13px; opacity: 0.9; }
-    .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+    .header h1 { font-size: 16px; font-weight: 600; }
+    .header .status { font-size: 13px; display: flex; align-items: center; gap: 8px; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; }
     .status-dot.connected { background: #4caf50; }
     .status-dot.disconnected { background: #f44336; }
+    .chat-toggle-btn {
+      background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3);
+      color: white; padding: 4px 12px; border-radius: 6px; cursor: pointer; font-size: 13px;
+    }
+    .chat-toggle-btn:hover { background: rgba(255,255,255,0.3); }
 
-    /* Main Layout */
     .main { flex: 1; display: flex; overflow: hidden; }
 
-    /* Excel Area */
-    .excel-area { flex: 1; position: relative; }
-    #luckysheet { position: absolute; width: 100%; height: 100%; }
+    /* 左侧菜单 */
+    .sidebar {
+      width: 220px; background: #1e1e2e; color: #cdd6f4;
+      display: flex; flex-direction: column; flex-shrink: 0;
+    }
+    .sidebar-logo {
+      padding: 16px 18px; font-size: 15px; font-weight: 700;
+      border-bottom: 1px solid #313244; display: flex; align-items: center; gap: 8px;
+    }
+    .sidebar-logo span { opacity: 0.6; font-size: 18px; }
+    .sidebar-menu { flex: 1; padding: 8px 0; overflow-y: auto; }
+    .menu-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 12px 18px; cursor: pointer; font-size: 14px;
+      transition: all 0.2s; color: #a6adc8; border-left: 3px solid transparent;
+    }
+    .menu-item:hover { background: #313244; color: #cdd6f4; }
+    .menu-item.active { background: rgba(102,126,234,0.15); color: #667eea; border-left-color: #667eea; }
+    .menu-item .icon { font-size: 18px; width: 24px; text-align: center; }
+    .sidebar-footer { padding: 12px 18px; border-top: 1px solid #313244; font-size: 11px; color: #585b70; }
 
-    /* Chat Panel */
+    /* 内容区域 */
+    .content-area { flex: 1; overflow-y: auto; position: relative; }
+    .page { display: none; height: 100%; }
+    .page.active { display: flex; flex-direction: column; }
+
+    /* Dashboard */
+    .dashboard-page { padding: 24px; gap: 24px; }
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+    .stat-card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+    .stat-card .label { font-size: 13px; color: #888; margin-bottom: 4px; }
+    .stat-card .value { font-size: 28px; font-weight: 700; color: #333; }
+    .stat-card .icon { float: right; font-size: 24px; opacity: 0.3; }
+    .activity-section { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+    .activity-section h3 { font-size: 16px; margin-bottom: 16px; color: #333; }
+    .activity-item { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #f0f0f0; font-size: 14px; }
+    .activity-item:last-child { border-bottom: none; }
+    .activity-item .action { color: #667eea; font-weight: 500; }
+    .activity-item .time { color: #999; font-size: 13px; }
+
+    /* Files */
+    .files-page { padding: 24px; }
+    .files-page h2 { font-size: 20px; margin-bottom: 16px; color: #333; }
+    .file-table { width: 100%; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.08); border-collapse: collapse; }
+    .file-table th { background: #f8f9fa; padding: 12px 16px; text-align: left; font-size: 13px; color: #666; font-weight: 600; border-bottom: 1px solid #eee; }
+    .file-table td { padding: 12px 16px; font-size: 14px; border-bottom: 1px solid #f0f0f0; color: #333; }
+    .file-table tr:hover td { background: #f8f9ff; }
+    .file-name-link { color: #667eea; cursor: pointer; font-weight: 500; }
+    .file-name-link:hover { text-decoration: underline; }
+    .type-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 500; }
+    .type-badge.excel { background: #e8f5e9; color: #2e7d32; }
+
+    /* Notes */
+    .notes-page { padding: 24px; gap: 16px; }
+    .notes-page h2 { font-size: 20px; margin-bottom: 8px; color: #333; }
+    .note-card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); cursor: pointer; transition: box-shadow 0.2s; }
+    .note-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.12); }
+    .note-title { font-size: 16px; font-weight: 600; color: #333; margin-bottom: 6px; }
+    .note-date { font-size: 12px; color: #999; margin-bottom: 8px; }
+    .note-body { font-size: 14px; color: #666; line-height: 1.6; }
+    .note-body.collapsed { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+    /* Excel */
+    .excel-page { position: relative; }
+    .excel-toolbar { display: flex; align-items: center; padding: 8px 16px; background: #fafafa; border-bottom: 1px solid #e0e0e0; gap: 12px; flex-shrink: 0; }
+    .excel-toolbar .file-name { font-size: 14px; font-weight: 600; color: #333; }
+    .excel-toolbar .file-badge { background: #e8f5e9; color: #2e7d32; padding: 2px 8px; border-radius: 4px; font-size: 12px; }
+    #luckysheet { position: absolute; top: 41px; left: 0; right: 0; bottom: 0; }
+
+    /* Settings */
+    .settings-page { padding: 24px; gap: 16px; }
+    .settings-page h2 { font-size: 20px; margin-bottom: 8px; color: #333; }
+    .setting-group { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+    .setting-group h3 { font-size: 15px; color: #333; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #eee; }
+    .setting-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; font-size: 14px; }
+    .setting-row .label { color: #666; }
+    .setting-row .value { color: #333; font-weight: 500; }
+
+    /* 聊天面板 */
     .chat-panel {
-      width: 380px; background: white;
-      display: flex; flex-direction: column;
-      border-left: 1px solid #e0e0e0;
-      box-shadow: -2px 0 8px rgba(0,0,0,0.05);
+      width: 380px; background: white; display: flex; flex-direction: column;
+      border-left: 1px solid #e0e0e0; box-shadow: -2px 0 8px rgba(0,0,0,0.05); flex-shrink: 0;
+      transition: width 0.3s, opacity 0.3s;
     }
-    .chat-header {
-      padding: 14px 18px; border-bottom: 1px solid #eee;
-      font-weight: 600; font-size: 15px; color: #333;
-    }
-    .chat-messages {
-      flex: 1; overflow-y: auto; padding: 16px;
-      display: flex; flex-direction: column; gap: 12px;
-    }
-    .message {
-      max-width: 90%; padding: 10px 14px;
-      border-radius: 12px; font-size: 14px; line-height: 1.5;
-      word-wrap: break-word;
-    }
-    .message.user {
-      align-self: flex-end; background: #667eea; color: white;
-      border-bottom-right-radius: 4px;
-    }
-    .message.agent {
-      align-self: flex-start; background: #f0f0f0; color: #333;
-      border-bottom-left-radius: 4px;
-    }
-    .message.system {
-      align-self: center; background: transparent; color: #999;
-      font-size: 12px; padding: 4px;
-    }
-    .message pre {
-      background: rgba(0,0,0,0.06); padding: 8px; border-radius: 6px;
-      font-size: 12px; overflow-x: auto; margin: 6px 0;
-    }
-    .status-msg {
-      align-self: center; color: #999; font-size: 12px;
-      padding: 4px 8px;
-    }
-    .status-msg::before {
-      content: ''; display: inline-block; width: 12px; height: 12px;
-      border: 2px solid #999; border-top-color: transparent;
-      border-radius: 50%; animation: spin 0.8s linear infinite;
-      margin-right: 6px; vertical-align: middle;
-    }
+    .chat-panel.collapsed { width: 0; overflow: hidden; opacity: 0; border: none; }
+    .chat-header { padding: 14px 18px; border-bottom: 1px solid #eee; font-weight: 600; font-size: 15px; color: #333; display: flex; justify-content: space-between; align-items: center; }
+    .chat-messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+    .message { max-width: 90%; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.5; word-wrap: break-word; }
+    .message.user { align-self: flex-end; background: #667eea; color: white; border-bottom-right-radius: 4px; }
+    .message.agent { align-self: flex-start; background: #f0f0f0; color: #333; border-bottom-left-radius: 4px; }
+    .message.system { align-self: center; background: transparent; color: #999; font-size: 12px; padding: 4px; }
+    .message pre { background: rgba(0,0,0,0.06); padding: 8px; border-radius: 6px; font-size: 12px; overflow-x: auto; margin: 6px 0; }
+    .status-msg { align-self: center; color: #999; font-size: 12px; padding: 4px 8px; }
+    .status-msg::before { content: ''; display: inline-block; width: 12px; height: 12px; border: 2px solid #999; border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 6px; vertical-align: middle; }
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    /* Chat Input */
-    .chat-input-area {
-      padding: 12px; border-top: 1px solid #eee;
-      display: flex; gap: 8px;
+    .suggestions { padding: 8px 16px; display: flex; flex-direction: column; gap: 6px; }
+    .suggestions .label { font-size: 11px; color: #999; text-transform: uppercase; letter-spacing: 0.5px; }
+    .suggestion-btn {
+      display: block; width: 100%; text-align: left; padding: 8px 12px;
+      border: 1px solid #e8e8e8; border-radius: 8px; background: #fafafa;
+      font-size: 13px; color: #555; cursor: pointer; transition: all 0.2s;
     }
-    .chat-input-area input {
-      flex: 1; padding: 10px 14px; border: 1px solid #ddd;
-      border-radius: 8px; font-size: 14px; outline: none;
-      transition: border-color 0.2s;
-    }
+    .suggestion-btn:hover { border-color: #667eea; color: #667eea; background: #f0f3ff; }
+
+    .chat-input-area { padding: 12px; border-top: 1px solid #eee; display: flex; gap: 8px; }
+    .chat-input-area input { flex: 1; padding: 10px 14px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; outline: none; }
     .chat-input-area input:focus { border-color: #667eea; }
-    .chat-input-area button {
-      padding: 10px 20px; background: #667eea; color: white;
-      border: none; border-radius: 8px; font-size: 14px;
-      cursor: pointer; transition: background 0.2s;
-    }
+    .chat-input-area button { padding: 10px 20px; background: #667eea; color: white; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; }
     .chat-input-area button:hover { background: #5a6fd6; }
     .chat-input-area button:disabled { background: #ccc; cursor: not-allowed; }
 
-    /* Demo hints */
-    .hints {
-      padding: 10px 16px; background: #fafafa; border-top: 1px solid #eee;
-      font-size: 12px; color: #888;
-    }
-    .hints span { color: #667eea; cursor: pointer; }
-    .hints span:hover { text-decoration: underline; }
+    .loading-spinner { display: flex; align-items: center; justify-content: center; padding: 40px; color: #999; font-size: 14px; gap: 8px; }
+    .loading-spinner::after { content: ''; width: 16px; height: 16px; border: 2px solid #ddd; border-top-color: #667eea; border-radius: 50%; animation: spin 0.8s linear infinite; }
   </style>
 </head>
 <body>
   <!-- Header -->
   <div class="header">
-    <h1>🤖 Agent Excel Demo</h1>
+    <h1>🤖 Agent Platform</h1>
     <div class="status">
+      <button class="chat-toggle-btn" onclick="toggleChat()" id="chatToggleBtn">💬 助手</button>
       <span class="status-dot" id="statusDot"></span>
       <span id="statusText">连接中...</span>
     </div>
   </div>
 
-  <!-- Main -->
   <div class="main">
-    <!-- Excel -->
-    <div class="excel-area">
-      <div id="luckysheet"></div>
+    <!-- 左侧菜单 -->
+    <nav class="sidebar">
+      <div class="sidebar-logo"><span>🤖</span> Agent Platform</div>
+      <div class="sidebar-menu">
+        <div class="menu-item active" data-page="dashboard" onclick="switchPage('dashboard')"><span class="icon">📊</span> 仪表盘</div>
+        <div class="menu-item" data-page="files" onclick="switchPage('files')"><span class="icon">📁</span> 文件管理</div>
+        <div class="menu-item" data-page="notes" onclick="switchPage('notes')"><span class="icon">📝</span> 笔记</div>
+        <div class="menu-item" data-page="excel" onclick="switchPage('excel')"><span class="icon">📊</span> Excel 编辑器</div>
+        <div class="menu-item" data-page="settings" onclick="switchPage('settings')"><span class="icon">⚙️</span> 设置</div>
+      </div>
+      <div class="sidebar-footer">Agent Platform v1.0 · Multi-Agent Demo</div>
+    </nav>
+
+    <!-- 内容区域 -->
+    <div class="content-area">
+      <!-- Dashboard -->
+      <div class="page dashboard-page active" id="page-dashboard">
+        <div class="stats-grid">
+          <div class="stat-card"><div class="icon">📁</div><div class="label">文件数量</div><div class="value" id="stat-files">-</div></div>
+          <div class="stat-card"><div class="icon">📝</div><div class="label">笔记数量</div><div class="value" id="stat-notes">-</div></div>
+          <div class="stat-card"><div class="icon">✅</div><div class="label">已完成任务</div><div class="value" id="stat-tasks">-</div></div>
+          <div class="stat-card"><div class="icon">⏳</div><div class="label">进行中任务</div><div class="value" id="stat-pending">-</div></div>
+        </div>
+        <div class="activity-section">
+          <h3>📋 最近活动</h3>
+          <div id="activityList"><div class="loading-spinner">加载中</div></div>
+        </div>
+      </div>
+
+      <!-- Files -->
+      <div class="page files-page" id="page-files">
+        <h2>📁 文件管理</h2>
+        <table class="file-table">
+          <thead><tr><th>文件名</th><th>类型</th><th>大小</th><th>修改时间</th><th>所有者</th></tr></thead>
+          <tbody id="filesBody"><tr><td colspan="5"><div class="loading-spinner">加载中</div></td></tr></tbody>
+        </table>
+      </div>
+
+      <!-- Notes -->
+      <div class="page notes-page" id="page-notes">
+        <h2>📝 我的笔记</h2>
+        <div id="notesList"><div class="loading-spinner">加载中</div></div>
+      </div>
+
+      <!-- Excel -->
+      <div class="page excel-page" id="page-excel">
+        <div class="excel-toolbar">
+          <span class="file-name" id="excelFileName">未选择文件</span>
+          <span class="file-badge" id="excelFileBadge" style="display:none;">.xlsx</span>
+        </div>
+        <div id="luckysheet"></div>
+      </div>
+
+      <!-- Settings -->
+      <div class="page settings-page" id="page-settings">
+        <h2>⚙️ 设置</h2>
+        <div class="setting-group">
+          <h3>🤖 AI 模型配置</h3>
+          <div class="setting-row"><span class="label">LLM 模型</span><span class="value" id="settingModel">-</span></div>
+          <div class="setting-row"><span class="label">API 端点</span><span class="value" id="settingEndpoint">-</span></div>
+          <div class="setting-row"><span class="label">连接状态</span><span class="value" id="settingStatus">-</span></div>
+        </div>
+        <div class="setting-group" style="margin-top:16px;">
+          <h3>ℹ️ 关于</h3>
+          <div class="setting-row"><span class="label">版本</span><span class="value">1.0.0</span></div>
+          <div class="setting-row"><span class="label">架构</span><span class="value">Master Agent + 子 Agent</span></div>
+        </div>
+      </div>
     </div>
 
-    <!-- Chat -->
-    <div class="chat-panel">
-      <div class="chat-header">💬 Excel 助手</div>
+    <!-- 聊天面板 -->
+    <div class="chat-panel" id="chatPanel">
+      <div class="chat-header">
+        <span>💬 智能助手</span>
+        <span id="chatPageLabel" style="font-size:12px;color:#999;font-weight:400;">仪表盘</span>
+      </div>
+      <div class="suggestions" id="suggestionsArea">
+        <div class="label">💡 推荐问题</div>
+        <div id="suggestionsList">
+          <button class="suggestion-btn" onclick="useSuggestion(this)">帮我总结最近的动态</button>
+          <button class="suggestion-btn" onclick="useSuggestion(this)">有什么待处理事项？</button>
+          <button class="suggestion-btn" onclick="useSuggestion(this)">最近修改了什么文件？</button>
+        </div>
+      </div>
       <div class="chat-messages" id="chatMessages">
         <div class="message system">连接到 Agent 中...</div>
       </div>
-      <div class="hints">
-        试试: <span onclick="fillExample(this)">帮我填一些示例数据</span> ·
-        <span onclick="quickCmd(this)">B列求和放到C1</span> ·
-        <span onclick="quickCmd(this)">把标题行加粗标黄</span>
-      </div>
       <div class="chat-input-area">
-        <input type="text" id="chatInput" placeholder="用自然语言描述你要做的操作..."
-               onkeydown="if(event.key==='Enter') sendMessage()" />
+        <input type="text" id="chatInput" placeholder="输入问题或指令..." onkeydown="if(event.key==='Enter')sendMessage()" />
         <button id="sendBtn" onclick="sendMessage()">发送</button>
       </div>
     </div>
   </div>
 
-  <!-- Luckysheet JS -->
   <script src="https://cdn.jsdelivr.net/npm/luckysheet@2.1.13/dist/plugins/js/plugin.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/luckysheet@2.1.13/dist/luckysheet.umd.js"></script>
 
   <script>
-    // ==========================================
-    // 全局状态
-    // ==========================================
-    let ws = null;
-    let sessionId = 'demo-' + Date.now();
-    let isConnected = false;
+  // ===== 全局状态 =====
+  let ws = null;
+  const sessionId = 'platform-' + Date.now();
+  let isConnected = false;
+  let currentPage = 'dashboard';
+  let luckysheetReady = false;
+  let currentExcelFile = null;
+  const cache = { dashboard: null, files: null, notes: null };
+  const pageLabels = { dashboard:'仪表盘', files:'文件管理', notes:'笔记', excel:'Excel 编辑器', settings:'设置' };
 
-    // ==========================================
-    // Luckysheet 初始化
-    // ==========================================
-    function initLuckysheet() {
-      luckysheet.create({
-        container: 'luckysheet',
-        title: 'Agent Excel Demo',
-        lang: 'zh',
-        showinfobar: false,
-        showsheetbar: true,
-        showstatisticBar: true,
-        data: [{
-          name: 'Sheet1',
-          color: '',
-          status: 1,
-          order: 0,
-          celldata: [
-            // 预填一些示例数据让表格不那么空
-            { r: 0, c: 0, v: { v: '姓名', ct: { fa: 'General', t: 'g' }, fc: '#333', bl: 1 } },
-            { r: 0, c: 1, v: { v: '销售额', ct: { fa: 'General', t: 'g' }, fc: '#333', bl: 1 } },
-            { r: 0, c: 2, v: { v: '备注', ct: { fa: 'General', t: 'g' }, fc: '#333', bl: 1 } },
-          ],
-          config: {
-            columnlen: { 0: 120, 1: 120, 2: 150 },
-          },
-        }],
-        hook: {
-          // 可以在这里 hook Excel 事件
-        },
-      });
-    }
+  // ===== 页面切换 =====
+  function switchPage(page) {
+    currentPage = page;
+    document.querySelectorAll('.menu-item').forEach(el => el.classList.toggle('active', el.dataset.page === page));
+    document.querySelectorAll('.page').forEach(el => el.classList.toggle('active', el.id === 'page-' + page));
+    document.getElementById('chatPageLabel').textContent = pageLabels[page] || page;
+    if (page === 'excel' && !luckysheetReady) { initLuckysheet(); luckysheetReady = true; }
+    loadPage(page);
+    requestSuggestions();
+  }
 
-    // ==========================================
-    // WebSocket 连接
-    // ==========================================
-    function connectWS() {
-      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      ws = new WebSocket(`${protocol}//${location.host}`);
+  // ===== 数据加载 =====
+  function loadPage(page) {
+    if (page === 'dashboard') loadDashboard();
+    else if (page === 'files') loadFiles();
+    else if (page === 'notes') loadNotes();
+    else if (page === 'settings') loadSettings();
+  }
 
-      ws.onopen = () => {
-        console.log('WebSocket 已连接');
-        ws.send(JSON.stringify({ type: 'register', sessionId }));
-      };
+  async function loadDashboard() {
+    if (cache.dashboard) return renderDashboard(cache.dashboard);
+    try {
+      const d = await (await fetch('/api/dashboard')).json();
+      cache.dashboard = d; renderDashboard(d);
+    } catch(e) { document.getElementById('activityList').innerHTML = '<div style="color:#f44336;padding:16px">加载失败</div>'; }
+  }
+  function renderDashboard(d) {
+    document.getElementById('stat-files').textContent = d.stats.files;
+    document.getElementById('stat-notes').textContent = d.stats.notes;
+    document.getElementById('stat-tasks').textContent = d.stats.completedTasks;
+    document.getElementById('stat-pending').textContent = d.stats.tasks - d.stats.completedTasks;
+    document.getElementById('activityList').innerHTML = d.recentActivity.map(a =>
+      '<div class="activity-item"><span><span class="action">' + a.action + '</span> ' + a.target + '</span><span class="time">' + a.time + '</span></div>'
+    ).join('');
+  }
 
-      ws.onmessage = (event) => {
-        const msg = JSON.parse(event.data);
-        handleMessage(msg);
-      };
+  async function loadFiles() {
+    if (cache.files) return renderFiles(cache.files);
+    try {
+      const d = await (await fetch('/api/files')).json();
+      cache.files = d; renderFiles(d);
+    } catch(e) { document.getElementById('filesBody').innerHTML = '<tr><td colspan="5" style="color:#f44336;padding:16px">加载失败</td></tr>'; }
+  }
+  function renderFiles(files) {
+    document.getElementById('filesBody').innerHTML = files.map(f =>
+      '<tr><td><span class="file-name-link" onclick="openExcel(' + f.id + ',\'' + f.name + '\')">' + f.name + '</span></td>' +
+      '<td><span class="type-badge excel">Excel</span></td><td>' + f.size + '</td><td>' + f.modified + '</td><td>' + f.owner + '</td></tr>'
+    ).join('');
+  }
+  function openExcel(id, name) {
+    currentExcelFile = name;
+    document.getElementById('excelFileName').textContent = name;
+    document.getElementById('excelFileBadge').style.display = 'inline-block';
+    switchPage('excel');
+  }
 
-      ws.onclose = () => {
-        console.log('WebSocket 已断开');
-        setConnected(false);
-        // 3秒后重连
-        setTimeout(connectWS, 3000);
-      };
+  async function loadNotes() {
+    if (cache.notes) return renderNotes(cache.notes);
+    try {
+      const d = await (await fetch('/api/notes')).json();
+      cache.notes = d; renderNotes(d);
+    } catch(e) { document.getElementById('notesList').innerHTML = '<div style="color:#f44336;padding:16px">加载失败</div>'; }
+  }
+  function renderNotes(notes) {
+    document.getElementById('notesList').innerHTML = notes.map(n =>
+      '<div class="note-card" onclick="this.querySelector(\'.note-body\').classList.toggle(\'collapsed\')">' +
+      '<div class="note-title">' + n.title + '</div><div class="note-date">' + n.date + '</div>' +
+      '<div class="note-body collapsed">' + n.content + '</div></div>'
+    ).join('');
+  }
 
-      ws.onerror = (err) => {
-        console.error('WebSocket 错误', err);
-      };
-    }
+  function loadSettings() {
+    document.getElementById('settingModel').textContent = 'DeepSeek V4 (via API)';
+    document.getElementById('settingEndpoint').textContent = location.host;
+    document.getElementById('settingStatus').innerHTML = isConnected
+      ? '<span style="color:#4caf50">● 已连接</span>'
+      : '<span style="color:#f44336">● 未连接</span>';
+  }
 
-    function setConnected(connected) {
-      isConnected = connected;
-      document.getElementById('statusDot').className = 'status-dot ' + (connected ? 'connected' : 'disconnected');
-      document.getElementById('statusText').textContent = connected ? 'Agent 已连接' : '未连接';
-    }
+  // ===== 聊天面板 =====
+  function toggleChat() {
+    const p = document.getElementById('chatPanel');
+    p.classList.toggle('collapsed');
+    document.getElementById('chatToggleBtn').textContent = p.classList.contains('collapsed') ? '💬 显示助手' : '💬 助手';
+  }
 
-    // ==========================================
-    // 消息处理
-    // ==========================================
-    function handleMessage(msg) {
-      switch (msg.type) {
-        case 'registered':
-          setConnected(true);
-          addSystemMessage('✅ 已连接到 Agent，可以开始对话了！');
-          break;
-
-        case 'status':
-          addStatusMessage(msg.message);
-          break;
-
-        case 'chat_reply':
-          removeStatusMessage();
-          addAgentMessage(msg.content);
-          document.getElementById('sendBtn').disabled = false;
-          break;
-
-        case 'tool_call':
-          // Server 发来的工具调用请求，在浏览器端执行
-          executeTool(msg.id, msg.method, msg.params);
-          break;
-      }
-    }
-
-    // ==========================================
-    // Tool Runtime - 浏览器端执行 Excel 操作
-    // ==========================================
-    function executeTool(requestId, method, params) {
+  // ===== 推荐问题 =====
+  function requestSuggestions() {
+    if (!isConnected) return;
+    ws.send(JSON.stringify({ type: 'get_suggestions', pageContext: getPageContext() }));
+  }
+  function getPageContext() {
+    const ctx = { page: currentPage };
+    if (currentPage === 'dashboard' && cache.dashboard) ctx.data = cache.dashboard;
+    else if (currentPage === 'files' && cache.files) ctx.data = cache.files;
+    else if (currentPage === 'notes' && cache.notes) ctx.data = cache.notes;
+    else if (currentPage === 'excel') {
       try {
-        let result;
-
-        switch (method) {
-          case 'get_cell_value': {
-            const { row, col } = params;
-            // Luckysheet API: 行列从 0 开始
-            const val = luckysheet.getCellValue(row - 1, colToIndex(col));
-            result = val !== null && val !== undefined ? String(val) : '';
-            break;
-          }
-
-          case 'set_cell_value': {
-            const { row, col, value } = params;
-            const r = row - 1;
-            const c = colToIndex(col);
-            // Luckysheet setCellValue 直接支持公式字符串（以 = 开头）
-            luckysheet.setCellValue(r, c, value);
-            result = { ok: true, cell: `${col}${row}`, value };
-            break;
-          }
-
-          case 'get_range_values': {
-            const { startRow, startCol, endRow, endCol } = params;
-            const data = [];
-            for (let r = startRow - 1; r < endRow; r++) {
-              const row = [];
-              for (let c = colToIndex(startCol); c <= colToIndex(endCol); c++) {
-                const val = luckysheet.getCellValue(r, c);
-                row.push(val !== null && val !== undefined ? val : null);
-              }
-              data.push(row);
+        const sd = luckysheet.getSheetData();
+        if (sd) {
+          const preview = [];
+          for (let r = 0; r < Math.min(5, sd.length); r++) {
+            if (!sd[r]) continue;
+            const row = [];
+            for (let c = 0; c < Math.min(6, sd[r].length); c++) {
+              const cell = sd[r][c];
+              row.push(cell && cell.v != null ? cell.v : '');
             }
-            result = data;
-            break;
+            preview.push(row);
           }
-
-          case 'set_range_values': {
-            const { startRow, startCol, values } = params;
-            for (let r = 0; r < values.length; r++) {
-              for (let c = 0; c < values[r].length; c++) {
-                luckysheet.setCellValue(startRow - 1 + r, colToIndex(startCol) + c, values[r][c]);
-              }
-            }
-            result = { ok: true, range: `${startCol}${startRow}:${startCol}${startRow + values.length - 1}` };
-            break;
-          }
-
-          case 'get_sheet_info': {
-            const sheetData = luckysheet.getSheetData();
-            const rows = sheetData ? sheetData.length : 84;
-            const cols = sheetData && sheetData[0] ? sheetData[0].length : 60;
-            result = { rows, cols, name: 'Sheet1' };
-            break;
-          }
-
-          case 'apply_cell_style': {
-            const { row, col, bold, bgColor, fontColor, fontSize } = params;
-            const r = row - 1;
-            const c = colToIndex(col);
-            // 使用 Luckysheet 的 setRangeFormat
-            try {
-              if (bold) luckysheet.setRangeFormat('bl', 1, { row: [r, r], column: [c, c] });
-              if (bgColor) luckysheet.setRangeFormat('bg', bgColor, { row: [r, r], column: [c, c] });
-              if (fontColor) luckysheet.setRangeFormat('fc', fontColor, { row: [r, r], column: [c, c] });
-              if (fontSize) luckysheet.setRangeFormat('fs', fontSize, { row: [r, r], column: [c, c] });
-            } catch(e) {
-              // fallback: 忽略样式错误，不影响数据操作
-              console.warn('setRangeFormat failed:', e);
-            }
-            result = { ok: true };
-            break;
-          }
-
-          case 'insert_formula': {
-            const { row, col, formula } = params;
-            const r = row - 1;
-            const c = colToIndex(col);
-            // Luckysheet setCellValue 直接支持公式字符串
-            luckysheet.setCellValue(r, c, formula);
-            result = { ok: true, cell: `${col}${row}`, formula };
-            break;
-          }
-
-          default:
-            throw new Error(`未知工具: ${method}`);
+          ctx.data = { sheetPreview: preview, fileName: currentExcelFile || '未命名' };
         }
+      } catch(e) {}
+    }
+    return ctx;
+  }
+  function renderSuggestions(arr) {
+    const el = document.getElementById('suggestionsList');
+    if (!arr || !arr.length) { el.innerHTML = '<button class="suggestion-btn" onclick="useSuggestion(this)">有什么可以帮你的？</button>'; return; }
+    el.innerHTML = arr.map(s => '<button class="suggestion-btn" onclick="useSuggestion(this)">' + s + '</button>').join('');
+  }
+  function useSuggestion(btn) { document.getElementById('chatInput').value = btn.textContent; sendMessage(); }
 
-        // 返回结果给 Server
-        ws.send(JSON.stringify({ type: 'tool_result', id: requestId, result }));
-      } catch (err) {
-        ws.send(JSON.stringify({ type: 'tool_result', id: requestId, error: err.message }));
+  // ===== Luckysheet =====
+  function initLuckysheet() {
+    luckysheet.create({
+      container: 'luckysheet', title: 'Excel 编辑器', lang: 'zh',
+      showinfobar: false, showsheetbar: true, showstatisticBar: true,
+      data: [{ name: 'Sheet1', status: 1, order: 0,
+        celldata: [
+          { r:0, c:0, v: { v:'姓名', ct:{fa:'General',t:'g'}, fc:'#333', bl:1 } },
+          { r:0, c:1, v: { v:'销售额', ct:{fa:'General',t:'g'}, fc:'#333', bl:1 } },
+          { r:0, c:2, v: { v:'备注', ct:{fa:'General',t:'g'}, fc:'#333', bl:1 } },
+        ],
+        config: { columnlen: { 0:120, 1:120, 2:150 } },
+      }],
+    });
+  }
+
+  // ===== WebSocket =====
+  function connectWS() {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(proto + '//' + location.host);
+    ws.onopen = () => ws.send(JSON.stringify({ type: 'register', sessionId }));
+    ws.onmessage = (ev) => handleMessage(JSON.parse(ev.data));
+    ws.onclose = () => { setConnected(false); setTimeout(connectWS, 3000); };
+    ws.onerror = () => {};
+  }
+  function setConnected(c) {
+    isConnected = c;
+    document.getElementById('statusDot').className = 'status-dot ' + (c ? 'connected' : 'disconnected');
+    document.getElementById('statusText').textContent = c ? 'Agent 已连接' : '未连接';
+    const s = document.getElementById('settingStatus');
+    if (s) s.innerHTML = c ? '<span style="color:#4caf50">● 已连接</span>' : '<span style="color:#f44336">● 未连接</span>';
+  }
+
+  // ===== 消息处理 =====
+  function handleMessage(msg) {
+    switch (msg.type) {
+      case 'registered': setConnected(true); addSystemMessage('✅ 已连接到 Agent，可以开始对话了！'); requestSuggestions(); break;
+      case 'status': addStatusMessage(msg.message); break;
+      case 'chat_reply': removeStatusMessage(); addAgentMessage(msg.content); document.getElementById('sendBtn').disabled = false; break;
+      case 'tool_call': executeTool(msg.id, msg.method, msg.params); break;
+      case 'suggestions': renderSuggestions(msg.suggestions); break;
+    }
+  }
+
+  // ===== Tool Runtime =====
+  function rebuildSheet() {
+    const sd = luckysheet.getSheetData(), cd = [];
+    for (let r = 0; r < sd.length; r++) { if (!sd[r]) continue; for (let c = 0; c < sd[r].length; c++) { if (!sd[r][c] || sd[r][c].v == null) continue; cd.push({r,c,v:{...sd[r][c]}}); } }
+    luckysheet.destroy();
+    luckysheet.create({ container:'luckysheet', title:'Excel 编辑器', lang:'zh', showinfobar:false, showsheetbar:true, showstatisticBar:true,
+      data:[{name:'Sheet1',status:1,order:0,celldata:cd,config:{columnlen:{0:120,1:120,2:150}}}] });
+  }
+
+  function colToIndex(col) { let i=0; for (let x=0;x<col.length;x++) i=i*26+(col.charCodeAt(x)-65); return i; }
+
+  function executeTool(rid, method, params) {
+    try {
+      let result;
+      switch (method) {
+        case 'get_cell_value': { const v = luckysheet.getCellValue(params.row-1, colToIndex(params.col)); result = v!=null ? String(v) : ''; break; }
+        case 'set_cell_value': {
+          const r=params.row-1, c=colToIndex(params.col), sd=luckysheet.getSheetData();
+          const old = sd[r]?.[c] ? {...sd[r][c]} : null;
+          luckysheet.setCellValue(r, c, params.value);
+          if (old) { const nc=sd[r][c]; if(old.bg)nc.bg=old.bg; if(old.bl)nc.bl=old.bl; if(old.fc)nc.fc=old.fc; if(old.fs)nc.fs=old.fs; }
+          result = {ok:true, cell:params.col+params.row, value:params.value}; break;
+        }
+        case 'get_range_values': {
+          const d=[]; for(let r=params.startRow-1;r<params.endRow;r++){const row=[];for(let c=colToIndex(params.startCol);c<=colToIndex(params.endCol);c++){const v=luckysheet.getCellValue(r,c);row.push(v!=null?v:null);}d.push(row);} result=d; break;
+        }
+        case 'set_range_values': {
+          const sd=luckysheet.getSheetData();
+          for(let ri=0;ri<params.values.length;ri++) for(let ci=0;ci<params.values[ri].length;ci++) {
+            const r=params.startRow-1+ri, c=colToIndex(params.startCol)+ci;
+            const old=sd[r]?.[c]?{...sd[r][c]}:null;
+            luckysheet.setCellValue(r,c,params.values[ri][ci]);
+            if(old){const nc=sd[r][c];if(old.bg)nc.bg=old.bg;if(old.bl)nc.bl=old.bl;if(old.fc)nc.fc=old.fc;if(old.fs)nc.fs=old.fs;}
+          }
+          result={ok:true}; break;
+        }
+        case 'get_sheet_info': { const sd=luckysheet.getSheetData(); result={rows:sd?sd.length:84,cols:sd&&sd[0]?sd[0].length:60,name:'Sheet1'}; break; }
+        case 'apply_cell_style': {
+          const r=params.row-1, c=colToIndex(params.col), sd=luckysheet.getSheetData();
+          if(!sd[r])sd[r]=[]; if(!sd[r][c])sd[r][c]={v:'',m:'',ct:{fa:'General',t:'g'}};
+          const cell=sd[r][c]; if(params.bold!==undefined)cell.bl=params.bold?1:0; if(params.bgColor)cell.bg=params.bgColor; if(params.fontColor)cell.fc=params.fontColor; if(params.fontSize)cell.fs=params.fontSize;
+          rebuildSheet(); result={ok:true}; break;
+        }
+        case 'insert_formula': { luckysheet.setCellValue(params.row-1, colToIndex(params.col), params.formula); result={ok:true,cell:params.col+params.row,formula:params.formula}; break; }
+        default: throw new Error('未知工具: ' + method);
       }
+      ws.send(JSON.stringify({type:'tool_result',id:rid,result}));
+    } catch(err) {
+      ws.send(JSON.stringify({type:'tool_result',id:rid,error:err.message}));
     }
+  }
 
-    // 列字母转数字索引 (A=0, B=1, ...)
-    function colToIndex(col) {
-      let index = 0;
-      for (let i = 0; i < col.length; i++) {
-        index = index * 26 + (col.charCodeAt(i) - 65);
-      }
-      return index;
-    }
+  // ===== Chat UI =====
+  function addUserMessage(t) { const d=document.createElement('div');d.className='message user';d.textContent=t;document.getElementById('chatMessages').appendChild(d);scrollChat(); }
+  function addAgentMessage(t) { const d=document.createElement('div');d.className='message agent';d.innerHTML=t.replace(/```([\s\S]*?)```/g,'<pre>$1</pre>').replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\n/g,'<br>');document.getElementById('chatMessages').appendChild(d);scrollChat(); }
+  function addSystemMessage(t) { const d=document.createElement('div');d.className='message system';d.textContent=t;document.getElementById('chatMessages').appendChild(d);scrollChat(); }
+  function addStatusMessage(t) { removeStatusMessage(); const d=document.createElement('div');d.className='status-msg';d.id='curStatus';d.textContent=t;document.getElementById('chatMessages').appendChild(d);scrollChat(); }
+  function removeStatusMessage() { const e=document.getElementById('curStatus'); if(e)e.remove(); }
+  function scrollChat() { const c = document.getElementById('chatMessages'); c.scrollTop = c.scrollHeight; }
 
-    // ==========================================
-    // Chat UI
-    // ==========================================
-    function addUserMessage(text) {
-      const div = document.createElement('div');
-      div.className = 'message user';
-      div.textContent = text;
-      document.getElementById('chatMessages').appendChild(div);
-      scrollChat();
-    }
+  // ===== 发送消息 =====
+  function sendMessage() {
+    const input = document.getElementById('chatInput');
+    const text = input.value.trim();
+    if (!text || !isConnected) return;
+    addUserMessage(text);
+    input.value = '';
+    document.getElementById('sendBtn').disabled = true;
+    ws.send(JSON.stringify({ type: 'chat', content: text, pageContext: getPageContext() }));
+  }
 
-    function addAgentMessage(text) {
-      const div = document.createElement('div');
-      div.className = 'message agent';
-      // 简单 markdown: code blocks
-      div.innerHTML = text
-        .replace(/```([\s\S]*?)```/g, '<pre>$1</pre>')
-        .replace(/`([^`]+)`/g, '<code>$1</code>')
-        .replace(/\n/g, '<br>');
-      document.getElementById('chatMessages').appendChild(div);
-      scrollChat();
-    }
-
-    function addSystemMessage(text) {
-      const div = document.createElement('div');
-      div.className = 'message system';
-      div.textContent = text;
-      document.getElementById('chatMessages').appendChild(div);
-      scrollChat();
-    }
-
-    function addStatusMessage(text) {
-      removeStatusMessage();
-      const div = document.createElement('div');
-      div.className = 'status-msg';
-      div.id = 'currentStatus';
-      div.textContent = text;
-      document.getElementById('chatMessages').appendChild(div);
-      scrollChat();
-    }
-
-    function removeStatusMessage() {
-      const el = document.getElementById('currentStatus');
-      if (el) el.remove();
-    }
-
-    function scrollChat() {
-      const container = document.getElementById('chatMessages');
-      container.scrollTop = container.scrollHeight;
-    }
-
-    // ==========================================
-    // 发送消息
-    // ==========================================
-    function sendMessage() {
-      const input = document.getElementById('chatInput');
-      const text = input.value.trim();
-      if (!text || !isConnected) return;
-
-      addUserMessage(text);
-      input.value = '';
-      document.getElementById('sendBtn').disabled = true;
-
-      ws.send(JSON.stringify({ type: 'chat', content: text }));
-    }
-
-    function quickCmd(el) {
-      document.getElementById('chatInput').value = el.textContent;
-      sendMessage();
-    }
-
-    function fillExample(el) {
-      document.getElementById('chatInput').value = '帮我填入以下数据：A2到A5填入张三、李四、王五、赵六，B2到B5填入1500、2300、1800、3200';
-      sendMessage();
-    }
-
-    // ==========================================
-    // 初始化
-    // ==========================================
-    window.onload = () => {
-      initLuckysheet();
-      connectWS();
-    };
+  // ===== 初始化 =====
+  window.onload = () => {
+    loadDashboard();
+    connectWS();
+  };
   </script>
 </body>
 </html>
