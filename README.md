@@ -36,19 +36,21 @@
 ## 快速开始
 
 ```bash
-# 1. 安装依赖
+# 1. 克隆
+ git clone https://github.com/marlonyao/agent-excel-demo.git
 cd agent-excel-demo
+
+# 2. 安装依赖
 npm install
 
-# 2. 配置 LLM API（支持任何 OpenAI 兼容 API）
-export LLM_BASE_URL="https://api.openai.com/v1"  # 或你的 LiteLLM 地址
-export LLM_API_KEY="sk-xxx"
-export LLM_MODEL="gpt-4o-mini"  # 或 glm-4-flash 等
+# 3. 配置环境变量
+cp .env.example .env
+# 编辑 .env，填入你的 API Key
 
-# 3. 启动
+# 4. 启动
 npm run dev
 
-# 4. 打开浏览器
+# 5. 打开浏览器
 # http://localhost:3000
 ```
 

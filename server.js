@@ -16,6 +16,7 @@
  *   7. 执行结果返回给 Excel Agent，最终回复用户
  */
 
+require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const { WebSocketServer } = require('ws');
