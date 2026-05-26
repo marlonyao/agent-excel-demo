@@ -1,0 +1,13 @@
+{
+  "name": "agent-excel-demo",
+  "version": "1.0.0",
+  "description": "Multi-Agent Excel Demo - Master Agent + Excel Agent + Browser Excel",
+  "scripts": {
+    "dev": "LLM_BASE_URL=https://api.deepseek.com/v1 LLM_API_KEY=sk-0e3e0a0edb3145b68c39554b8180b10b LLM_MODEL=deepseek-chat node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "ws": "^8.16.0",
+    "openai": "^4.28.0"
+  }
+}
