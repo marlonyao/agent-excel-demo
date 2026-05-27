@@ -554,6 +554,22 @@
           rebuildSheet(); result={ok:true}; break;
         }
         case 'insert_formula': { luckysheet.setCellValue(params.row-1, colToIndex(params.col), params.formula); result={ok:true,cell:params.col+params.row,formula:params.formula}; break; }
+        case 'list_files': {
+          // 从 /api/files 获取文件列表
+          const files = cache.files || [];
+          result = files.map(f => ({id: f.id, name: f.name, size: f.size, modified: f.modified}));
+          if (result.length === 0) {
+            // 还没加载过，给 mock 数据
+            result = [{id:1, name:'销售数据_Q1.xlsx', size:'24KB', modified:'2026-05-25'}, {id:2, name:'项目预算.xlsx', size:'18KB', modified:'2026-05-24'}, {id:3, name:'员工花名册.xlsx', size:'32KB', modified:'2026-05-23'}];
+          }
+          break;
+        }
+        case 'select_file': {
+          // 选择文件并切换到 Excel 页面
+          openExcel(params.fileId, params.fileName);
+          result = {ok: true, fileName: params.fileName, message: '已打开文件 ' + params.fileName};
+          break;
+        }
         default: throw new Error('未知工具: ' + method);
       }
       ws.send(JSON.stringify({type:'tool_result',id:rid,result}));

@@ -147,6 +147,29 @@ const EXCEL_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'list_files',
+      description: '列出所有可用的 Excel 文件。返回文件列表（id、文件名、大小、修改时间）',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'select_file',
+      description: '选择并打开一个 Excel 文件，切换到 Excel 编辑器页面。参数 fileId 为文件 id（数字）',
+      parameters: {
+        type: 'object',
+        properties: {
+          fileId: { type: 'number', description: '文件 id' },
+          fileName: { type: 'string', description: '文件名' },
+        },
+        required: ['fileId', 'fileName'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'apply_cell_style',
       description: '设置单元格样式（加粗、背景色等）',
       parameters: {
@@ -213,7 +236,7 @@ async function masterAgent(userMessage, sessionId, pageContext) {
 页面数据摘要: ${data ? JSON.stringify(data).slice(0, 500) : '无'}
 
 可选子 Agent:
-- "excel": Excel 数据操作（读写单元格、公式、样式）— 只有当用户明确要操作 Excel 数据时才选
+- "excel": Excel 数据操作（读写单元格、公式、样式、选择/打开文件）— 当用户要操作 Excel 数据或选择文件时
 - "general": 通用对话（总结、问答、建议、分析）— 其他所有情况
 
 回复格式（只回复一个词）:
@@ -228,7 +251,7 @@ excel 或 general`;
   console.log(`[Master] 路由到: ${agentType}`);
 
   // 2. 路由到对应子 Agent
-  if (agentType === 'excel' && page === 'excel') {
+  if (agentType === 'excel') {
     return await excelAgent(userMessage, sessionId);
   } else {
     return await generalAgent(userMessage, pageContext);
@@ -274,10 +297,11 @@ async function excelAgent(task, sessionId) {
       content: `你是一个 Excel 操作助手。用户会用自然语言描述想要对 Excel 表格做的操作。
 你需要将用户的意图转换为具体的 Excel 工具调用。
 规则：
-1. 先了解当前数据（必要时调用 get_sheet_info 或 get_range_values）
-2. 然后执行操作
-3. 操作完成后，用简洁的中文告诉用户你做了什么
-4. 对于求和、平均值等计算，使用公式（如 =SUM(B1:B10)）`,
+1. 如果用户想选择/打开文件，先调用 list_files 查看可用文件，再用 select_file 打开
+2. 先了解当前数据（必要时调用 get_sheet_info 或 get_range_values）
+3. 然后执行操作
+4. 操作完成后，用简洁的中文告诉用户你做了什么
+5. 对于求和、平均值等计算，使用公式（如 =SUM(B1:B10)）`,
     },
     { role: 'user', content: task },
   ];
