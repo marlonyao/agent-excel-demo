@@ -36,11 +36,12 @@ app.use(express.static(path.join(__dirname, 'public')));
 // 截图接收接口
 app.post('/api/screenshot', (req, res) => {
   const fs = require('fs');
-  const { data } = req.body;
+  const { data, name } = req.body;
   if (!data) return res.status(400).json({ error: 'no data' });
   const base64 = data.replace(/^data:image\/\w+;base64,/, '');
-  fs.writeFileSync('/tmp/screenshot-fs-capture.png', Buffer.from(base64, 'base64'));
-  console.log('Screenshot saved:', Buffer.from(base64, 'base64').length, 'bytes');
+  const filename = name ? `/tmp/screenshot-${name}.png` : '/tmp/screenshot-fs-capture.png';
+  fs.writeFileSync(filename, Buffer.from(base64, 'base64'));
+  console.log('Screenshot saved:', filename, Buffer.from(base64, 'base64').length, 'bytes');
   res.json({ ok: true });
 });
 
