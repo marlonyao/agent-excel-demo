@@ -130,40 +130,21 @@
     }
     .chat-panel.collapsed { width: 0; overflow: hidden; opacity: 0; border: none; }
 
-    /* 窄屏：侧边栏助手改为 iframe 抽屉 */
-    .chat-iframe-overlay {
-      display: none; position: fixed; inset: 0; z-index: 9000;
-      pointer-events: none;
+    /* 右侧窄助手：iframe 嵌入；全屏助手见 .fullscreen-overlay，不用 iframe */
+    .chat-panel iframe {
+      flex: 1; width: 100%; min-height: 0; border: none; display: block;
     }
-    .chat-iframe-overlay.open { display: block; pointer-events: auto; }
-    .chat-iframe-backdrop {
-      position: absolute; inset: 0; background: rgba(0,0,0,0.35);
-      opacity: 0; transition: opacity 0.25s;
-    }
-    .chat-iframe-overlay.open .chat-iframe-backdrop { opacity: 1; }
-    .chat-iframe-sheet {
-      position: absolute; left: 0; right: 0; bottom: 0; top: 48px;
-      background: #fff; border-radius: 16px 16px 0 0;
-      box-shadow: 0 -4px 24px rgba(0,0,0,0.15);
-      display: flex; flex-direction: column;
-      transform: translateY(100%); transition: transform 0.3s ease;
-      overflow: hidden;
-    }
-    .chat-iframe-overlay.open .chat-iframe-sheet { transform: translateY(0); }
-    .chat-iframe-sheet iframe {
-      flex: 1; width: 100%; border: none; display: block;
+    #chatDataHost {
+      position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
     }
     @media (max-width: 768px) {
-      .chat-panel--desktop { display: none !important; }
       .main { flex-direction: column; }
       .sidebar { width: 100%; max-height: 52px; flex-direction: row; overflow-x: auto; }
       .sidebar-logo, .sidebar-footer { display: none; }
       .sidebar-menu { display: flex; flex-direction: row; padding: 4px 8px; flex: 1; }
       .menu-item { padding: 8px 12px; white-space: nowrap; border-left: none; border-bottom: 3px solid transparent; }
       .menu-item.active { border-left: none; border-bottom-color: #667eea; }
-    }
-    @media (min-width: 769px) {
-      .chat-iframe-overlay { display: none !important; }
     }
     .chat-header { padding: 14px 18px; border-bottom: 1px solid #eee; font-weight: 600; font-size: 15px; color: #333; display: flex; justify-content: space-between; align-items: center; }
     .chat-messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
@@ -368,40 +349,21 @@
       </div>
     </div>
 
-    <!-- 宽屏：内联聊天面板 -->
-    <div class="chat-panel chat-panel--desktop" id="chatPanel">
-      <div class="chat-header">
-        <span>💬 智能助手</span>
-        <span style="display:flex;align-items:center;gap:6px;">
-          <span id="chatPageLabel" style="font-size:12px;color:#999;font-weight:400;">仪表盘</span>
-          <button class="fullscreen-btn" onclick="openFullscreen()" title="全屏模式">⛶</button>
-        </span>
-      </div>
-      <div class="suggestions" id="suggestionsArea">
-        <div class="label">💡 推荐问题</div>
-        <div id="suggestionsList">
-          <button class="suggestion-btn" onclick="useSuggestion(this)">帮我总结最近的动态</button>
-          <button class="suggestion-btn" onclick="useSuggestion(this)">有什么待处理事项？</button>
-          <button class="suggestion-btn" onclick="useSuggestion(this)">最近修改了什么文件？</button>
-        </div>
-      </div>
-      <div class="chat-messages" id="chatMessages">
-        <div class="message system">连接到 Agent 中...</div>
-      </div>
-      <div class="chat-input-area" style="position:relative;">
-        <div class="input-dropdown" id="inputDropdown"></div>
-        <input type="text" id="chatInput" placeholder="输入问题或指令..." autocomplete="off" oninput="onChatInput()" onkeydown="onChatKeydown(event)" />
-        <button id="sendBtn" onclick="sendMessage()">发送</button>
-      </div>
+    <!-- 窄助手：右侧栏 iframe（WebSocket / Tool 仍在父页） -->
+    <div class="chat-panel" id="chatPanel">
+      <iframe id="chatIframe" src="chat-iframe.html" title="智能助手"></iframe>
     </div>
   </div>
 
-  <!-- 窄屏：助手 iframe 抽屉（WebSocket / Tool 仍在父页） -->
-  <div class="chat-iframe-overlay" id="chatIframeOverlay">
-    <div class="chat-iframe-backdrop" onclick="toggleChat()"></div>
-    <div class="chat-iframe-sheet">
-      <iframe id="chatIframe" src="chat-iframe.html" title="智能助手"></iframe>
+  <!-- 会话数据宿主（隐藏，供 WS / 全屏同步；展示在 iframe 或全屏层） -->
+  <div id="chatDataHost" aria-hidden="true">
+    <div class="chat-messages" id="chatMessages">
+      <div class="message system">连接到 Agent 中...</div>
     </div>
+    <div id="suggestionsList"></div>
+    <div class="input-dropdown" id="inputDropdown"></div>
+    <input type="text" id="chatInput" tabindex="-1" autocomplete="off" />
+    <button type="button" id="sendBtn" tabindex="-1">发送</button>
   </div>
 
   <!-- 全屏聊天覆盖层 -->
@@ -443,6 +405,29 @@
     </div>
   </div>
 
+  <!-- 须在 luckysheet 等大脚本之前注册，避免 iframe 抢先 postMessage('ready') 被丢弃 -->
+  <script>
+  (function () {
+    const pending = [];
+    window.__dispatchChatIframeMessage = function (ev) {
+      if (ev.origin !== location.origin) return;
+      const msg = ev.data;
+      if (!msg || msg.source !== 'agent-chat') return;
+      if (typeof window.__handleChatIframeMessage === 'function') {
+        window.__handleChatIframeMessage(ev);
+      } else {
+        pending.push(ev);
+      }
+    };
+    window.__flushChatIframeMessageQueue = function () {
+      const fn = window.__handleChatIframeMessage;
+      if (!fn) return;
+      while (pending.length) fn(pending.shift());
+    };
+    window.addEventListener('message', window.__dispatchChatIframeMessage);
+  })();
+  </script>
+
   <script src="https://cdn.jsdelivr.net/npm/luckysheet@2.1.13/dist/plugins/js/plugin.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/luckysheet@2.1.13/dist/luckysheet.umd.js"></script>
 
@@ -463,8 +448,13 @@
   const CHAT_IFRAME_SOURCE = 'agent-chat';
   let chatIframeReady = false;
 
-  function isNarrowLayout() {
-    return window.matchMedia('(max-width: 768px)').matches;
+  function isFullscreenChatActive() {
+    return document.getElementById('fullscreenChat').classList.contains('active');
+  }
+
+  /** 右侧窄助手栏使用 iframe；全屏放大助手不使用 iframe */
+  function useSidebarChatIframe() {
+    return !isFullscreenChatActive();
   }
 
   function postToChatIframe(msg) {
@@ -494,19 +484,20 @@
   }
 
   function syncChatIframeFull() {
-    if (!chatIframeReady) return;
+    if (!useSidebarChatIframe()) return;
+    const sendBtn = document.getElementById('sendBtn');
     postToChatIframe({
       type: 'sync',
       connected: isConnected,
       pageLabel: pageLabels[currentPage] || currentPage,
       suggestions: currentSuggestions,
-      sendDisabled: document.getElementById('sendBtn').disabled,
+      sendDisabled: sendBtn ? sendBtn.disabled : false,
       messages: collectPanelMessagesForIframe(),
     });
   }
 
   function mirrorChatAppend(role, text, html) {
-    if (!isNarrowLayout() || !chatIframeReady) return;
+    if (!useSidebarChatIframe()) return;
     postToChatIframe({ type: 'append', role, text, html });
   }
 
@@ -517,6 +508,7 @@
     switch (msg.type) {
       case 'ready':
         chatIframeReady = true;
+        postToChatIframe({ type: 'ack' });
         syncChatIframeFull();
         break;
       case 'send':
@@ -524,14 +516,10 @@
         break;
       case 'preview':
         if (msg.previewType && msg.previewId) {
-          document.getElementById('chatIframeOverlay').classList.remove('open');
-          updateChatToggleLabel();
           openPreview(msg.previewType, msg.previewId);
         }
         break;
       case 'openFullscreen':
-        document.getElementById('chatIframeOverlay').classList.remove('open');
-        updateChatToggleLabel();
         openFullscreen();
         break;
     }
@@ -539,21 +527,18 @@
 
   function updateChatToggleLabel() {
     const btn = document.getElementById('chatToggleBtn');
-    if (isNarrowLayout()) {
-      const open = document.getElementById('chatIframeOverlay').classList.contains('open');
-      btn.textContent = open ? '💬 关闭' : '💬 助手';
-    } else {
-      const collapsed = document.getElementById('chatPanel').classList.contains('collapsed');
-      btn.textContent = collapsed ? '💬 显示助手' : '💬 助手';
-    }
+    const collapsed = document.getElementById('chatPanel').classList.contains('collapsed');
+    btn.textContent = collapsed ? '💬 显示助手' : '💬 助手';
   }
+
+  window.__handleChatIframeMessage = handleChatIframeMessage;
+  window.__flushChatIframeMessageQueue();
 
   // ===== 页面切换 =====
   function switchPage(page) {
     currentPage = page;
     document.querySelectorAll('.menu-item').forEach(el => el.classList.toggle('active', el.dataset.page === page));
     document.querySelectorAll('.page').forEach(el => el.classList.toggle('active', el.id === 'page-' + page));
-    document.getElementById('chatPageLabel').textContent = pageLabels[page] || page;
     postToChatIframe({ type: 'pageLabel', label: pageLabels[page] || page });
     if (page === 'excel' && !luckysheetReady && currentExcelFile) loadLuckysheet();
     loadPage(page);
@@ -675,16 +660,12 @@
 
   // ===== 聊天面板 =====
   function toggleChat() {
-    if (isNarrowLayout()) {
-      document.getElementById('chatIframeOverlay').classList.toggle('open');
-      if (document.getElementById('chatIframeOverlay').classList.contains('open')) {
-        syncChatIframeFull();
-      }
-      updateChatToggleLabel();
-      return;
-    }
     const p = document.getElementById('chatPanel');
     p.classList.toggle('collapsed');
+    if (!p.classList.contains('collapsed')) {
+      syncChatIframeFull();
+      if (!chatIframeReady) postToChatIframe({ type: 'ping' });
+    }
     updateChatToggleLabel();
   }
 
@@ -740,9 +721,6 @@
 
   function renderSuggestions(arr) {
     currentSuggestions = arr || [];
-    const el = document.getElementById('suggestionsList');
-    if (!arr || !arr.length) { el.innerHTML = '<button class="suggestion-btn" onclick="useSuggestion(this)">有什么可以帮你的？</button>'; return; }
-    el.innerHTML = arr.map(s => '<button class="suggestion-btn" onclick="useSuggestion(this)">' + s + '</button>').join('');
     postToChatIframe({ type: 'suggestions', suggestions: currentSuggestions });
   }
   function useSuggestion(btn) { document.getElementById('chatInput').value = btn.textContent; closeDropdown(); sendMessage(); }
@@ -991,7 +969,8 @@
         } else {
           addAgentMessage(msg.content);
         }
-        document.getElementById('sendBtn').disabled = false;
+        const sendBtnDone = document.getElementById('sendBtn');
+        if (sendBtnDone) sendBtnDone.disabled = false;
         postToChatIframe({ type: 'sendDisabled', disabled: false });
         break;
       }
@@ -1427,11 +1406,11 @@
     removeStatusMessage();
     const d=document.createElement('div');d.className='status-msg';d.id='curStatus';d.textContent=t;
     document.getElementById('chatMessages').appendChild(d);scrollChat();
-    if (isNarrowLayout() && chatIframeReady) postToChatIframe({ type: 'status', text: t });
+    if (useSidebarChatIframe()) postToChatIframe({ type: 'status', text: t });
   }
   function removeStatusMessage() {
     const e=document.getElementById('curStatus'); if(e)e.remove();
-    if (isNarrowLayout() && chatIframeReady) postToChatIframe({ type: 'status', clear: true });
+    if (useSidebarChatIframe()) postToChatIframe({ type: 'status', clear: true });
   }
   function scrollChat() { const c = document.getElementById('chatMessages'); c.scrollTop = c.scrollHeight; }
 
@@ -1455,7 +1434,8 @@
     const input = document.getElementById('chatInput');
     if (input) input.value = '';
     closeDropdown();
-    document.getElementById('sendBtn').disabled = true;
+    const sendBtn = document.getElementById('sendBtn');
+    if (sendBtn) sendBtn.disabled = true;
     postToChatIframe({ type: 'sendDisabled', disabled: true });
     postToChatIframe({ type: 'clearInput' });
     ws.send(JSON.stringify({
@@ -1512,7 +1492,11 @@
     loadSessionIntoFs('__current__');
     document.getElementById('fullscreenChat').classList.add('active');
   }
-  function closeFullscreen() { document.getElementById('fullscreenChat').classList.remove('active'); }
+  function closeFullscreen() {
+    document.getElementById('fullscreenChat').classList.remove('active');
+    syncChatIframeFull();
+    if (!chatIframeReady) postToChatIframe({ type: 'ping' });
+  }
 
 
   function getPanelMessages() {
@@ -1782,14 +1766,6 @@
   }
 
   // ===== 初始化 =====
-  window.addEventListener('message', handleChatIframeMessage);
-  window.addEventListener('resize', () => {
-    if (!isNarrowLayout()) {
-      document.getElementById('chatIframeOverlay').classList.remove('open');
-    }
-    updateChatToggleLabel();
-  });
-
   window.onload = () => {
     initSessions();
     loadDashboard();

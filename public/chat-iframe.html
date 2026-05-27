@@ -109,12 +109,34 @@
   <script>
   const HOST = 'agent-host';
   const CHAT = 'agent-chat';
+  let hostAcked = false;
+  let readyTimer = null;
   let isConnected = false;
   let currentSuggestions = [];
   let dropdownIndex = -1;
 
   function post(type, payload) {
-    window.parent.postMessage({ source: CHAT, type, ...payload }, location.origin);
+    window.parent.postMessage({ source: CHAT, type, ...(payload || {}) }, location.origin);
+  }
+
+  function announceReady() {
+    post('ready');
+  }
+
+  function stopReadyRetry() {
+    hostAcked = true;
+    if (readyTimer) {
+      clearInterval(readyTimer);
+      readyTimer = null;
+    }
+  }
+
+  function startReadyRetry() {
+    announceReady();
+    if (readyTimer) return;
+    readyTimer = setInterval(() => {
+      if (!hostAcked) announceReady();
+    }, 400);
   }
 
   function scrollChat() {
@@ -305,10 +327,16 @@
       case 'clearInput':
         document.getElementById('chatInput').value = '';
         break;
+      case 'ack':
+        stopReadyRetry();
+        break;
+      case 'ping':
+        announceReady();
+        break;
     }
   });
 
-  post('ready');
+  startReadyRetry();
   </script>
 </body>
 </html>
