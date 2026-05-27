@@ -955,13 +955,37 @@
       const file = (cache.files || []).find(f => f.id === id);
       if (!file) return;
       title.textContent = '📊 ' + file.name;
-      body.innerHTML = '<div class="file-info-row"><span class="file-info-label">文件名</span><span class="file-info-value">' + escHtml(file.name) + '</span></div>' +
-        '<div class="file-info-row"><span class="file-info-label">类型</span><span class="file-info-value">Excel (.xlsx)</span></div>' +
-        '<div class="file-info-row"><span class="file-info-label">大小</span><span class="file-info-value">' + escHtml(file.size) + '</span></div>' +
-        '<div class="file-info-row"><span class="file-info-label">修改时间</span><span class="file-info-value">' + escHtml(file.modified) + '</span></div>' +
-        '<div class="file-info-row"><span class="file-info-label">所有者</span><span class="file-info-value">' + escHtml(file.owner) + '</span></div>' +
-        '<div style="margin-top:16px;"><button onclick="openExcel(' + file.id + ',\'' + file.name + '\')" style="padding:10px 20px;background:#667eea;color:white;border:none;border-radius:8px;cursor:pointer;font-size:14px;">📊 在编辑器中打开</button></div>';
+      panel.style.width = '600px';
+      body.style.padding = '0';
+      // 用 HTML 表格渲染 Excel 数据
+      const celldata = getFileCelldata(file.name);
+      let html = '<table style="border-collapse:collapse;width:100%;font-size:13px;">';
+      // 找出行列范围
+      let maxR = 0, maxC = 0;
+      celldata.forEach(c => { if(c.r>maxR) maxR=c.r; if(c.c>maxC) maxC=c.c; });
+      // 构建二维数组
+      const grid = [];
+      for(let r=0;r<=maxR;r++) { grid[r]=[]; for(let c=0;c<=maxC;c++) grid[r][c]=''; }
+      celldata.forEach(c => { grid[c.r][c.c] = c.v.v != null ? c.v.v : ''; });
+      // 渲染表格
+      for(let r=0;r<=maxR;r++) {
+        html += '<tr>';
+        for(let c=0;c<=maxC;c++) {
+          const val = grid[r][c];
+          const isHeader = r === 0;
+          const style = isHeader
+            ? 'background:#fff3cd;font-weight:600;padding:8px 10px;border:1px solid #e0e0e0;'
+            : 'padding:6px 10px;border:1px solid #eee;';
+          const display = typeof val === 'number' ? val.toLocaleString() : val;
+          html += '<td style="' + style + '">' + escHtml(String(display)) + '</td>';
+        }
+        html += '</tr>';
+      }
+      html += '</table>';
+      body.innerHTML = html;
     } else if (type === 'note') {
+      panel.style.width = '480px';
+      body.style.padding = '16px';
       const note = (cache.notes || []).find(n => n.id === id);
       if (!note) return;
       title.textContent = '📝 ' + note.title;
@@ -972,7 +996,12 @@
     panel.classList.add('open');
   }
   function closePreview() {
-    document.getElementById('fsPreview').classList.remove('open');
+    const panel = document.getElementById('fsPreview');
+    panel.classList.remove('open');
+    panel.style.width = '';
+    const body = document.getElementById('fsPreviewBody');
+    body.innerHTML = '';
+    body.style.padding = '16px';
   }
 
   function renderPreviewLinks(html) {
