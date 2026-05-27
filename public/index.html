@@ -397,6 +397,14 @@
     document.getElementById('excelFileName').textContent = name;
     document.getElementById('excelFileBadge').style.display = 'inline-block';
     switchPage('excel');
+    // 如果 luckysheet 已初始化，重新加载该文件数据
+    if (luckysheetReady) {
+      const celldata = getFileCelldata(name);
+      luckysheet.destroy();
+      luckysheetReady = false;
+      initLuckysheet();
+      luckysheetReady = true;
+    }
   }
 
   async function loadNotes() {
@@ -467,18 +475,74 @@
   function useSuggestion(btn) { document.getElementById('chatInput').value = btn.textContent; sendMessage(); }
 
   // ===== Luckysheet =====
+  // 每个文件的默认数据
+  const FILE_DATA = {
+    '销售数据_Q1.xlsx': [
+      {r:0,c:0,v:{v:'姓名',ct:{fa:'General',t:'g'},fc:'#333',bl:1}},
+      {r:0,c:1,v:{v:'1月销售额',ct:{fa:'General',t:'g'},fc:'#333',bl:1}},
+      {r:0,c:2,v:{v:'2月销售额',ct:{fa:'General',t:'g'},fc:'#333',bl:1}},
+      {r:0,c:3,v:{v:'3月销售额',ct:{fa:'General',t:'g'},fc:'#333',bl:1}},
+      {r:0,c:4,v:{v:'Q1合计',ct:{fa:'General',t:'g'},fc:'#333',bl:1}},
+      {r:1,c:0,v:{v:'张三'}}, {r:1,c:1,v:{v:15200,ct:{fa:'#,##0',t:'n'}}}, {r:1,c:2,v:{v:18500,ct:{fa:'#,##0',t:'n'}}}, {r:1,c:3,v:{v:22100,ct:{fa:'#,##0',t:'n'}}}, {r:1,c:4,v:{v:'=SUM(B2:D2)',ct:{fa:'#,##0',t:'n'}}},
+      {r:2,c:0,v:{v:'李四'}}, {r:2,c:1,v:{v:23800,ct:{fa:'#,##0',t:'n'}}}, {r:2,c:2,v:{v:19200,ct:{fa:'#,##0',t:'n'}}}, {r:2,c:3,v:{v:25600,ct:{fa:'#,##0',t:'n'}}}, {r:2,c:4,v:{v:'=SUM(B3:D3)',ct:{fa:'#,##0',t:'n'}}},
+      {r:3,c:0,v:{v:'王五'}}, {r:3,c:1,v:{v:18500,ct:{fa:'#,##0',t:'n'}}}, {r:3,c:2,v:{v:22300,ct:{fa:'#,##0',t:'n'}}}, {r:3,c:3,v:{v:19800,ct:{fa:'#,##0',t:'n'}}}, {r:3,c:4,v:{v:'=SUM(B4:D4)',ct:{fa:'#,##0',t:'n'}}},
+      {r:4,c:0,v:{v:'赵六'}}, {r:4,c:1,v:{v:32100,ct:{fa:'#,##0',t:'n'}}}, {r:4,c:2,v:{v:28500,ct:{fa:'#,##0',t:'n'}}}, {r:4,c:3,v:{v:35200,ct:{fa:'#,##0',t:'n'}}}, {r:4,c:4,v:{v:'=SUM(B5:D5)',ct:{fa:'#,##0',t:'n'}}},
+      {r:5,c:0,v:{v:'孙七'}}, {r:5,c:1,v:{v:19800,ct:{fa:'#,##0',t:'n'}}}, {r:5,c:2,v:{v:24600,ct:{fa:'#,##0',t:'n'}}}, {r:5,c:3,v:{v:21300,ct:{fa:'#,##0',t:'n'}}}, {r:5,c:4,v:{v:'=SUM(B6:D6)',ct:{fa:'#,##0',t:'n'}}},
+      {r:6,c:0,v:{v:'周八'}}, {r:6,c:1,v:{v:27400,ct:{fa:'#,##0',t:'n'}}}, {r:6,c:2,v:{v:31200,ct:{fa:'#,##0',t:'n'}}}, {r:6,c:3,v:{v:29800,ct:{fa:'#,##0',t:'n'}}}, {r:6,c:4,v:{v:'=SUM(B7:D7)',ct:{fa:'#,##0',t:'n'}}},
+      {r:7,c:0,v:{v:'合计',bl:1,fc:'#333'}}, {r:7,c:1,v:{v:'=SUM(B2:B7)',ct:{fa:'#,##0',t:'n'},bl:1}}, {r:7,c:2,v:{v:'=SUM(C2:C7)',ct:{fa:'#,##0',t:'n'},bl:1}}, {r:7,c:3,v:{v:'=SUM(D2:D7)',ct:{fa:'#,##0',t:'n'},bl:1}}, {r:7,c:4,v:{v:'=SUM(E2:E7)',ct:{fa:'#,##0',t:'n'},bl:1}},
+    ],
+    '项目预算.xlsx': [
+      {r:0,c:0,v:{v:'项目名称',ct:{fa:'General',t:'g'},fc:'#333',bl:1}},
+      {r:0,c:1,v:{v:'预算金额',ct:{fa:'General',t:'g'},fc:'#333',bl:1}},
+      {r:0,c:2,v:{v:'已用金额',ct:{fa:'General',t:'g'},fc:'#333',bl:1}},
+      {r:0,c:3,v:{v:'剩余金额',ct:{fa:'General',t:'g'},fc:'#333',bl:1}},
+      {r:0,c:4,v:{v:'进度',ct:{fa:'General',t:'g'},fc:'#333',bl:1}},
+      {r:1,c:0,v:{v:'前端开发'}}, {r:1,c:1,v:{v:150000,ct:{fa:'#,##0',t:'n'}}}, {r:1,c:2,v:{v:98000,ct:{fa:'#,##0',t:'n'}}}, {r:1,c:3,v:{v:'=B2-C2',ct:{fa:'#,##0',t:'n'}}}, {r:1,c:4,v:{v:'65%'}},
+      {r:2,c:0,v:{v:'后端开发'}}, {r:2,c:1,v:{v:200000,ct:{fa:'#,##0',t:'n'}}}, {r:2,c:2,v:{v:145000,ct:{fa:'#,##0',t:'n'}}}, {r:2,c:3,v:{v:'=B3-C3',ct:{fa:'#,##0',t:'n'}}}, {r:2,c:4,v:{v:'72%'}},
+      {r:3,c:0,v:{v:'UI设计'}}, {r:3,c:1,v:{v:80000,ct:{fa:'#,##0',t:'n'}}}, {r:3,c:2,v:{v:80000,ct:{fa:'#,##0',t:'n'}}}, {r:3,c:3,v:{v:'=B4-C4',ct:{fa:'#,##0',t:'n'}}}, {r:3,c:4,v:{v:'100%'}},
+      {r:4,c:0,v:{v:'测试'}}, {r:4,c:1,v:{v:60000,ct:{fa:'#,##0',t:'n'}}}, {r:4,c:2,v:{v:32000,ct:{fa:'#,##0',t:'n'}}}, {r:4,c:3,v:{v:'=B5-C5',ct:{fa:'#,##0',t:'n'}}}, {r:4,c:4,v:{v:'53%'}},
+      {r:5,c:0,v:{v:'运维部署'}}, {r:5,c:1,v:{v:50000,ct:{fa:'#,##0',t:'n'}}}, {r:5,c:2,v:{v:12000,ct:{fa:'#,##0',t:'n'}}}, {r:5,c:3,v:{v:'=B6-C6',ct:{fa:'#,##0',t:'n'}}}, {r:5,c:4,v:{v:'24%'}},
+      {r:6,c:0,v:{v:'总计',bl:1,fc:'#333'}}, {r:6,c:1,v:{v:'=SUM(B2:B6)',ct:{fa:'#,##0',t:'n'},bl:1}}, {r:6,c:2,v:{v:'=SUM(C2:C6)',ct:{fa:'#,##0',t:'n'},bl:1}}, {r:6,c:3,v:{v:'=SUM(D2:D6)',ct:{fa:'#,##0',t:'n'},bl:1}},
+    ],
+    '员工花名册.xlsx': [
+      {r:0,c:0,v:{v:'工号',ct:{fa:'General',t:'g'},fc:'#333',bl:1}},
+      {r:0,c:1,v:{v:'姓名',ct:{fa:'General',t:'g'},fc:'#333',bl:1}},
+      {r:0,c:2,v:{v:'部门',ct:{fa:'General',t:'g'},fc:'#333',bl:1}},
+      {r:0,c:3,v:{v:'职位',ct:{fa:'General',t:'g'},fc:'#333',bl:1}},
+      {r:0,c:4,v:{v:'入职日期',ct:{fa:'General',t:'g'},fc:'#333',bl:1}},
+      {r:0,c:5,v:{v:'月薪',ct:{fa:'General',t:'g'},fc:'#333',bl:1}},
+      {r:1,c:0,v:{v:'E001'}}, {r:1,c:1,v:{v:'张三'}}, {r:1,c:2,v:{v:'销售部'}}, {r:1,c:3,v:{v:'销售经理'}}, {r:1,c:4,v:{v:'2022-03-15'}}, {r:1,c:5,v:{v:18000,ct:{fa:'#,##0',t:'n'}}},
+      {r:2,c:0,v:{v:'E002'}}, {r:2,c:1,v:{v:'李四'}}, {r:2,c:2,v:{v:'技术部'}}, {r:2,c:3,v:{v:'高级工程师'}}, {r:2,c:4,v:{v:'2021-07-01'}}, {r:2,c:5,v:{v:25000,ct:{fa:'#,##0',t:'n'}}},
+      {r:3,c:0,v:{v:'E003'}}, {r:3,c:1,v:{v:'王五'}}, {r:3,c:2,v:{v:'市场部'}}, {r:3,c:3,v:{v:'市场专员'}}, {r:3,c:4,v:{v:'2023-01-10'}}, {r:3,c:5,v:{v:12000,ct:{fa:'#,##0',t:'n'}}},
+      {r:4,c:0,v:{v:'E004'}}, {r:4,c:1,v:{v:'赵六'}}, {r:4,c:2,v:{v:'财务部'}}, {r:4,c:3,v:{v:'财务主管'}}, {r:4,c:4,v:{v:'2020-11-20'}}, {r:4,c:5,v:{v:22000,ct:{fa:'#,##0',t:'n'}}},
+      {r:5,c:0,v:{v:'E005'}}, {r:5,c:1,v:{v:'孙七'}}, {r:5,c:2,v:{v:'技术部'}}, {r:5,c:3,v:{v:'前端工程师'}}, {r:5,c:4,v:{v:'2023-06-15'}}, {r:5,c:5,v:{v:16000,ct:{fa:'#,##0',t:'n'}}},
+      {r:6,c:0,v:{v:'E006'}}, {r:6,c:1,v:{v:'周八'}}, {r:6,c:2,v:{v:'人事部'}}, {r:6,c:3,v:{v:'HR经理'}}, {r:6,c:4,v:{v:'2021-09-01'}}, {r:6,c:5,v:{v:20000,ct:{fa:'#,##0',t:'n'}}},
+      {r:7,c:0,v:{v:'E007'}}, {r:7,c:1,v:{v:'吴九'}}, {r:7,c:2,v:{v:'技术部'}}, {r:7,c:3,v:{v:'架构师'}}, {r:7,c:4,v:{v:'2019-04-01'}}, {r:7,c:5,v:{v:35000,ct:{fa:'#,##0',t:'n'}}},
+      {r:8,c:0,v:{v:'E008'}}, {r:8,c:1,v:{v:'郑十'}}, {r:8,c:2,v:{v:'销售部'}}, {r:8,c:3,v:{v:'销售专员'}}, {r:8,c:4,v:{v:'2024-02-01'}}, {r:8,c:5,v:{v:10000,ct:{fa:'#,##0',t:'n'}}},
+    ],
+  };
+
+  // 标题行黄色背景
+  function applyHeaderBg(celldata) {
+    celldata.forEach(c => { if (c.r === 0) c.v.bg = '#fff3cd'; });
+  }
+
+  function getFileCelldata(name) {
+    const data = FILE_DATA[name];
+    if (data) applyHeaderBg(data);
+    return data || [
+      {r:0,c:0,v:{v:'姓名',ct:{fa:'General',t:'g'},fc:'#333',bl:1}},
+      {r:0,c:1,v:{v:'销售额',ct:{fa:'General',t:'g'},fc:'#333',bl:1}},
+      {r:0,c:2,v:{v:'备注',ct:{fa:'General',t:'g'},fc:'#333',bl:1}},
+    ];
+  }
+
   function initLuckysheet() {
+    const celldata = getFileCelldata(currentExcelFile);
     luckysheet.create({
       container: 'luckysheet', title: 'Excel 编辑器', lang: 'zh',
       showinfobar: false, showsheetbar: true, showstatisticBar: true,
-      data: [{ name: 'Sheet1', status: 1, order: 0,
-        celldata: [
-          { r:0, c:0, v: { v:'姓名', ct:{fa:'General',t:'g'}, fc:'#333', bl:1 } },
-          { r:0, c:1, v: { v:'销售额', ct:{fa:'General',t:'g'}, fc:'#333', bl:1 } },
-          { r:0, c:2, v: { v:'备注', ct:{fa:'General',t:'g'}, fc:'#333', bl:1 } },
-        ],
-        config: { columnlen: { 0:120, 1:120, 2:150 } },
-      }],
+      data: [{ name: 'Sheet1', status: 1, order: 0, celldata, config: { columnlen: { 0:120, 1:120, 2:150, 3:120, 4:120, 5:120 } } }],
     });
   }
 
