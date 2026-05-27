@@ -267,7 +267,7 @@ excel 或 general`;
 
   // 2. 路由到对应子 Agent
   if (agentType === 'excel') {
-    return await excelAgent(userMessage, sessionId);
+    return await excelAgent(userMessage, sessionId, pageContext);
   } else {
     return await generalAgent(userMessage, pageContext);
   }
@@ -303,7 +303,7 @@ ${page === 'excel' ? `对于 Excel 页面，推荐的问题应该包括：
 // ==========================================
 // Excel Agent - 子 Agent
 // ==========================================
-async function excelAgent(task, sessionId) {
+async function excelAgent(task, sessionId, pageContext) {
   console.log(`[ExcelAgent] 处理: ${task}`);
 
   const messages = [
@@ -311,6 +311,7 @@ async function excelAgent(task, sessionId) {
       role: 'system',
       content: `你是一个 Excel 操作助手。用户会用自然语言描述想要对 Excel 表格做的操作。
 你需要将用户的意图转换为具体的 Excel 工具调用。
+${pageContext && pageContext.data && pageContext.data.selectedRange ? `\n用户当前选中了 Excel 区域 ${pageContext.data.selectedRange}\n选中表头: ${JSON.stringify(pageContext.data.selectedHeaders)}\n选中数据: ${JSON.stringify(pageContext.data.selectedData)}\n当用户说"这些数据"、"选中的"、"这个区域"时，指的是这个选区。` : ''}
 
 重要规则：
 1. 操作前必须先调用 get_sheet_info 了解表头和列含义
@@ -361,7 +362,8 @@ async function generalAgent(userMessage, pageContext) {
     {
       role: 'system',
       content: `你是一个智能助手。当前用户在浏览 "${page}" 页面。
-页面数据: ${data ? JSON.stringify(data).slice(0, 1000) : '无数据'}
+页面数据: ${data ? JSON.stringify(data).slice(0, 2000) : '无数据'}
+${data && data.selectedRange ? `\n用户当前在 Excel 中选中了区域 ${data.selectedRange}，选中数据如下：\n表头: ${JSON.stringify(data.selectedHeaders)}\n数据: ${JSON.stringify(data.selectedData)}\n当用户提到"这些数据"、"选中的"、"这个区域"时，指的是这个选区。` : ''}
 请根据上下文用中文回答用户的问题。回答要简洁有用。`,
     },
     { role: 'user', content: userMessage },

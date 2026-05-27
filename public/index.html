@@ -205,9 +205,8 @@
       <div class="sidebar-logo"><span>🤖</span> Agent Platform</div>
       <div class="sidebar-menu">
         <div class="menu-item active" data-page="dashboard" onclick="switchPage('dashboard')"><span class="icon">📊</span> 仪表盘</div>
-        <div class="menu-item" data-page="files" onclick="switchPage('files')"><span class="icon">📁</span> 文件管理</div>
-        <div class="menu-item" data-page="notes" onclick="switchPage('notes')"><span class="icon">📝</span> 笔记</div>
         <div class="menu-item" data-page="excel" onclick="switchPage('excel')"><span class="icon">📊</span> Excel 编辑器</div>
+        <div class="menu-item" data-page="notes" onclick="switchPage('notes')"><span class="icon">📝</span> 笔记</div>
         <div class="menu-item" data-page="settings" onclick="switchPage('settings')"><span class="icon">⚙️</span> 设置</div>
       </div>
       <div class="sidebar-footer">Agent Platform v1.0 · Multi-Agent Demo</div>
@@ -469,6 +468,30 @@
             preview.push(row);
           }
           ctx.data = { sheetPreview: preview, headers, fileName: currentExcelFile || '未命名' };
+          // 获取当前选区
+          try {
+            const range = luckysheet.getRange();
+            if (range && range.length > 0) {
+              const r0 = range[0];
+              const sr = r0.row[0], er = r0.row[1], sc = r0.column[0], ec = r0.column[1];
+              // 列号转字母
+              const colLetter = (i) => String.fromCharCode(65+i);
+              const rangeStr = `${colLetter(sc)}${sr+1}:${colLetter(ec)}${er+1}`;
+              // 获取选区数据
+              const rangeData = [];
+              for (let r = sr; r <= er; r++) {
+                const row = [];
+                for (let c = sc; c <= ec; c++) {
+                  const v = luckysheet.getCellValue(r, c);
+                  row.push(v != null ? v : '');
+                }
+                rangeData.push(row);
+              }
+              ctx.data.selectedRange = rangeStr;
+              ctx.data.selectedData = rangeData;
+              ctx.data.selectedHeaders = headers.slice(sc, ec+1);
+            }
+          } catch(e2) {}
         }
       } catch(e) {}
     }
