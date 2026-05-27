@@ -146,6 +146,45 @@
 
     .loading-spinner { display: flex; align-items: center; justify-content: center; padding: 40px; color: #999; font-size: 14px; gap: 8px; }
     .loading-spinner::after { content: ''; width: 16px; height: 16px; border: 2px solid #ddd; border-top-color: #667eea; border-radius: 50%; animation: spin 0.8s linear infinite; }
+
+    /* ===== 全屏聊天模式 ===== */
+    .fullscreen-btn { background: none; border: none; cursor: pointer; font-size: 16px; padding: 2px 6px; border-radius: 4px; color: #999; }
+    .fullscreen-btn:hover { background: #f0f0f0; color: #333; }
+    .fullscreen-overlay {
+      display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: white; z-index: 9999; flex-direction: row;
+    }
+    .fullscreen-overlay.active { display: flex; }
+
+    /* 全屏左侧：历史会话列表 */
+    .fs-history { width: 280px; background: #f8f9fa; border-right: 1px solid #e0e0e0; display: flex; flex-direction: column; flex-shrink: 0; }
+    .fs-history-header { padding: 16px; border-bottom: 1px solid #e0e0e0; display: flex; justify-content: space-between; align-items: center; }
+    .fs-history-header h3 { font-size: 15px; color: #333; }
+    .fs-close-btn { background: none; border: none; font-size: 20px; cursor: pointer; color: #666; padding: 4px 8px; border-radius: 4px; }
+    .fs-close-btn:hover { background: #e0e0e0; }
+    .fs-history-list { flex: 1; overflow-y: auto; padding: 8px; }
+    .fs-history-item { padding: 12px; border-radius: 8px; cursor: pointer; margin-bottom: 4px; transition: background 0.15s; }
+    .fs-history-item:hover { background: #e8eaed; }
+    .fs-history-item.active { background: #667eea; color: white; }
+    .fs-history-item .fs-hi-title { font-size: 14px; font-weight: 500; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .fs-history-item .fs-hi-preview { font-size: 12px; opacity: 0.7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .fs-history-item .fs-hi-time { font-size: 11px; opacity: 0.5; margin-top: 2px; }
+    .fs-new-chat-btn { margin: 8px; padding: 10px; background: #667eea; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 13px; }
+    .fs-new-chat-btn:hover { background: #5a6fd6; }
+
+    /* 全屏右侧：聊天内容 */
+    .fs-chat { flex: 1; display: flex; flex-direction: column; }
+    .fs-chat-header { padding: 14px 20px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
+    .fs-chat-header h3 { font-size: 16px; color: #333; }
+    .fs-chat-header .fs-page-tag { font-size: 12px; color: #999; background: #f0f0f0; padding: 2px 8px; border-radius: 4px; }
+    .fs-messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+    .fs-suggestions { padding: 8px 20px; display: flex; flex-direction: column; gap: 6px; }
+    .fs-suggestions .label { font-size: 11px; color: #999; text-transform: uppercase; }
+    .fs-input-area { padding: 16px 20px; border-top: 1px solid #eee; display: flex; gap: 10px; }
+    .fs-input-area input { flex: 1; padding: 12px 16px; border: 1px solid #ddd; border-radius: 10px; font-size: 15px; outline: none; }
+    .fs-input-area input:focus { border-color: #667eea; }
+    .fs-input-area button { padding: 12px 24px; background: #667eea; color: white; border: none; border-radius: 10px; font-size: 15px; cursor: pointer; }
+    .fs-input-area button:hover { background: #5a6fd6; }
   </style>
 </head>
 <body>
@@ -234,7 +273,10 @@
     <div class="chat-panel" id="chatPanel">
       <div class="chat-header">
         <span>💬 智能助手</span>
-        <span id="chatPageLabel" style="font-size:12px;color:#999;font-weight:400;">仪表盘</span>
+        <span style="display:flex;align-items:center;gap:6px;">
+          <span id="chatPageLabel" style="font-size:12px;color:#999;font-weight:400;">仪表盘</span>
+          <button class="fullscreen-btn" onclick="openFullscreen()" title="全屏模式">⛶</button>
+        </span>
       </div>
       <div class="suggestions" id="suggestionsArea">
         <div class="label">💡 推荐问题</div>
@@ -254,6 +296,37 @@
     </div>
   </div>
 
+  <!-- 全屏聊天覆盖层 -->
+  <div class="fullscreen-overlay" id="fullscreenChat">
+    <!-- 左侧历史会话 -->
+    <div class="fs-history">
+      <div class="fs-history-header">
+        <h3>💬 会话历史</h3>
+        <button class="fs-close-btn" onclick="closeFullscreen()" title="关闭">✕</button>
+      </div>
+      <button class="fs-new-chat-btn" onclick="newChat()">＋ 新会话</button>
+      <div class="fs-history-list" id="fsHistoryList">
+        <!-- 动态生成 -->
+      </div>
+    </div>
+    <!-- 右侧聊天内容 -->
+    <div class="fs-chat">
+      <div class="fs-chat-header">
+        <h3 id="fsChatTitle">当前会话</h3>
+        <span class="fs-page-tag" id="fsPageTag">仪表盘</span>
+      </div>
+      <div class="fs-suggestions" id="fsSuggestions">
+        <div class="label">💡 推荐问题</div>
+        <div id="fsSuggestionsList"></div>
+      </div>
+      <div class="fs-messages" id="fsMessages"></div>
+      <div class="fs-input-area">
+        <input type="text" id="fsInput" placeholder="输入问题或指令..." onkeydown="if(event.key==='Enter')fsSend()" />
+        <button onclick="fsSend()">发送</button>
+      </div>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/luckysheet@2.1.13/dist/plugins/js/plugin.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/luckysheet@2.1.13/dist/luckysheet.umd.js"></script>
 
@@ -263,6 +336,7 @@
   const sessionId = 'platform-' + Date.now();
   let isConnected = false;
   let currentPage = 'dashboard';
+  const pageNames = { dashboard:'仪表盘', files:'文件管理', notes:'笔记', excel:'Excel 编辑器', settings:'设置' };
   let luckysheetReady = false;
   let currentExcelFile = null;
   const cache = { dashboard: null, files: null, notes: null };
@@ -506,8 +580,147 @@
     ws.send(JSON.stringify({ type: 'chat', content: text, pageContext: getPageContext() }));
   }
 
+  // ===== 全屏聊天模式 =====
+  // 会话存储：{ id, title, messages: [{role,text,time}], page, createdAt }
+  let chatSessions = JSON.parse(localStorage.getItem('chatSessions') || '[]');
+  let activeSessionId = null;
+
+  function saveSessions() { localStorage.setItem('chatSessions', JSON.stringify(chatSessions)); }
+
+  function openFullscreen() {
+    // 把当前侧边栏消息同步到全屏
+    syncToFullscreen();
+    renderHistoryList();
+    document.getElementById('fullscreenChat').classList.add('active');
+  }
+  function closeFullscreen() { document.getElementById('fullscreenChat').classList.remove('active'); }
+
+  function syncToFullscreen() {
+    // 当前会话就是最新的
+    if (!activeSessionId) {
+      const msgs = getPanelMessages();
+      if (chatSessions.length === 0 || chatSessions[0].id !== '__current__') {
+        chatSessions.unshift({ id: '__current__', title: '当前会话 · ' + pageNames[currentPage], messages: msgs, page: currentPage, createdAt: new Date().toLocaleString() });
+      } else {
+        chatSessions[0].messages = msgs;
+        chatSessions[0].title = '当前会话 · ' + pageNames[currentPage];
+        chatSessions[0].page = currentPage;
+      }
+      activeSessionId = '__current__';
+    }
+    renderHistoryList();
+    loadSessionIntoFs(activeSessionId);
+  }
+
+  function getPanelMessages() {
+    const els = document.getElementById('chatMessages').children;
+    const msgs = [];
+    for (let el of els) {
+      const cls = el.className;
+      let role = 'system';
+      if (cls.includes('user')) role = 'user';
+      else if (cls.includes('agent')) role = 'agent';
+      msgs.push({ role, text: el.textContent.trim() });
+    }
+    return msgs;
+  }
+
+  function renderHistoryList() {
+    const list = document.getElementById('fsHistoryList');
+    let html = '';
+    for (let s of chatSessions) {
+      const active = s.id === activeSessionId ? 'active' : '';
+      const preview = s.messages.length > 0 ? s.messages[s.messages.length-1].text.slice(0,40) : '空会话';
+      html += '<div class="fs-history-item ' + active + '" onclick="loadSessionIntoFs(\'' + s.id + '\')">' +
+        '<div class="fs-hi-title">' + escHtml(s.title) + '</div>' +
+        '<div class="fs-hi-preview">' + escHtml(preview) + '</div>' +
+        '<div class="fs-hi-time">' + escHtml(s.createdAt || '') + '</div></div>';
+    }
+    list.innerHTML = html || '<div style="padding:16px;color:#999;text-align:center">暂无历史会话</div>';
+  }
+
+  function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  function loadSessionIntoFs(id) {
+    activeSessionId = id;
+    const s = chatSessions.find(x => x.id === id);
+    if (!s) return;
+    document.getElementById('fsChatTitle').textContent = s.title;
+    document.getElementById('fsPageTag').textContent = pageNames[s.page] || s.page;
+    // 渲染消息
+    const container = document.getElementById('fsMessages');
+    container.innerHTML = s.messages.map(m => {
+      const cls = m.role === 'user' ? 'message user' : m.role === 'agent' ? 'message agent' : 'message system';
+      const text = m.role === 'agent' ? m.text.replace(/```([\s\S]*?)```/g,'<pre>$1</pre>').replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\n/g,'<br>') : escHtml(m.text);
+      return '<div class="' + cls + '">' + text + '</div>';
+    }).join('');
+    container.scrollTop = container.scrollHeight;
+    renderHistoryList();
+  }
+
+  function newChat() {
+    // 保存当前会话（如果是 __current__）
+    if (activeSessionId === '__current__') {
+      const cur = chatSessions.find(x => x.id === '__current__');
+      if (cur) {
+        cur.id = 'session-' + Date.now();
+        cur.title = cur.messages.length > 1 ? cur.messages[1].text.slice(0,30) : '新会话';
+      }
+    }
+    // 清空面板消息，创建新的 __current__
+    document.getElementById('chatMessages').innerHTML = '<div class="message system">新的会话已开始</div>';
+    chatSessions.unshift({ id: '__current__', title: '当前会话 · ' + pageNames[currentPage], messages: [{ role:'system', text:'新的会话已开始' }], page: currentPage, createdAt: new Date().toLocaleString() });
+    activeSessionId = '__current__';
+    saveSessions();
+    renderHistoryList();
+    loadSessionIntoFs('__current__');
+  }
+
+  function fsSend() {
+    const input = document.getElementById('fsInput');
+    const text = input.value.trim();
+    if (!text || !isConnected) return;
+    input.value = '';
+    // 同时发到侧边栏
+    addUserMessage(text);
+    document.getElementById('sendBtn').disabled = true;
+    ws.send(JSON.stringify({ type: 'chat', content: text, pageContext: getPageContext() }));
+    // 更新当前会话
+    const cur = chatSessions.find(x => x.id === '__current__');
+    if (cur) {
+      cur.messages.push({ role:'user', text, time: Date.now() });
+      cur.page = currentPage;
+    }
+    loadSessionIntoFs('__current__');
+  }
+
+  // Hook agent 回复到全屏
+  const origAddAgent = addAgentMessage;
+  addAgentMessage = function(t) {
+    origAddAgent(t);
+    const cur = chatSessions.find(x => x.id === '__current__');
+    if (cur) {
+      cur.messages.push({ role:'agent', text: t, time: Date.now() });
+      cur.title = cur.messages.length <= 2 ? t.slice(0,30) : cur.title;
+      saveSessions();
+      if (activeSessionId === '__current__' && document.getElementById('fullscreenChat').classList.contains('active')) {
+        loadSessionIntoFs('__current__');
+      }
+    }
+  };
+
+  // 初始化：加载历史
+  function initSessions() {
+    // 确保至少有一个 __current__
+    if (!chatSessions.find(x => x.id === '__current__')) {
+      chatSessions.unshift({ id: '__current__', title: '当前会话 · 仪表盘', messages: [{ role:'system', text:'连接到 Agent 中...' }], page: 'dashboard', createdAt: new Date().toLocaleString() });
+    }
+    saveSessions();
+  }
+
   // ===== 初始化 =====
   window.onload = () => {
+    initSessions();
     loadDashboard();
     connectWS();
   };

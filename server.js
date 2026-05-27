@@ -30,8 +30,19 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
+
+// 截图接收接口
+app.post('/api/screenshot', (req, res) => {
+  const fs = require('fs');
+  const { data } = req.body;
+  if (!data) return res.status(400).json({ error: 'no data' });
+  const base64 = data.replace(/^data:image\/\w+;base64,/, '');
+  fs.writeFileSync('/tmp/screenshot-fs-capture.png', Buffer.from(base64, 'base64'));
+  console.log('Screenshot saved:', Buffer.from(base64, 'base64').length, 'bytes');
+  res.json({ ok: true });
+});
 
 // ==========================================
 // LLM 配置
