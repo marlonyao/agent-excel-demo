@@ -430,6 +430,46 @@
       initLuckysheet();
       luckysheetReady = true;
     }
+    // 自动总结 Excel 内容
+    autoSummarizeExcel(name);
+  }
+
+  let lastSummarizedFile = null;
+  let isAutoSummary = false;
+  function autoSummarizeExcel(name) {
+    if (name === lastSummarizedFile) return;
+    lastSummarizedFile = name;
+    setTimeout(() => {
+      try {
+        const sd = luckysheet.getSheetData();
+        if (!sd) return;
+        const headers = [];
+        if (sd[0]) for (let c=0; c<Math.min(8, sd[0].length); c++) {
+          const cell = sd[0][c];
+          headers.push(cell && cell.v != null ? String(cell.v) : '');
+        }
+        const preview = [];
+        for (let r=1; r<Math.min(6, sd.length); r++) {
+          if (!sd[r]) continue;
+          const row = [];
+          for (let c=0; c<Math.min(8, sd[r].length); c++) {
+            const cell = sd[r][c];
+            row.push(cell && cell.v != null ? cell.v : '');
+          }
+          preview.push(row);
+        }
+        isAutoSummary = true;
+        const summaryReq = {
+          type: 'chat',
+          content: '请简要总结这个 Excel 文件的内容，用2-3句话说明这是什么表格，包含什么数据。不要执行任何操作。',
+          pageContext: {
+            page: 'excel',
+            data: { headers, sheetPreview: [headers, ...preview], fileName: name }
+          }
+        };
+        if (ws && isConnected) ws.send(JSON.stringify(summaryReq));
+      } catch(e) {}
+    }, 1500);
   }
 
   async function loadNotes() {
@@ -671,7 +711,26 @@
     switch (msg.type) {
       case 'registered': setConnected(true); addSystemMessage('✅ 已连接到 Agent，可以开始对话了！'); requestSuggestions(); break;
       case 'status': addStatusMessage(msg.message); break;
-      case 'chat_reply': removeStatusMessage(); addAgentMessage(msg.content); document.getElementById('sendBtn').disabled = false; break;
+      case 'chat_reply': {
+        removeStatusMessage();
+        if (isAutoSummary) {
+          // 自动总结显示为系统提示
+          isAutoSummary = false;
+          const container = document.getElementById('chatMessages');
+          const oldSummary = container.querySelector('.auto-summary');
+          if (oldSummary) oldSummary.remove();
+          const div = document.createElement('div');
+          div.className = 'message system auto-summary';
+          div.style.cssText = 'background:#f0f4ff;padding:10px 14px;border-radius:8px;font-size:13px;line-height:1.6;';
+          div.innerHTML = '📋 <strong>' + escHtml(currentExcelFile) + '</strong><br>' + msg.content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
+          container.appendChild(div);
+          scrollChat();
+        } else {
+          addAgentMessage(msg.content);
+        }
+        document.getElementById('sendBtn').disabled = false;
+        break;
+      }
       case 'tool_call': executeTool(msg.id, msg.method, msg.params); break;
       case 'suggestions': renderSuggestions(msg.suggestions); break;
     }
