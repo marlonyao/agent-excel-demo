@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>智能助手</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; overflow: hidden; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #fff;
+      display: flex;
+      flex-direction: column;
+    }
+    .chat-header {
+      padding: 14px 18px;
+      border-bottom: 1px solid #eee;
+      font-weight: 600;
+      font-size: 15px;
+      color: #333;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    .fullscreen-btn {
+      background: none; border: none; cursor: pointer;
+      font-size: 16px; padding: 2px 6px; border-radius: 4px; color: #999;
+    }
+    .fullscreen-btn:hover { background: #f0f0f0; color: #333; }
+    .suggestions { padding: 8px 16px; flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; }
+    .suggestions .label { font-size: 11px; color: #999; text-transform: uppercase; letter-spacing: 0.5px; }
+    .suggestion-btn {
+      display: block; width: 100%; text-align: left; padding: 8px 12px;
+      border: 1px solid #e8e8e8; border-radius: 8px; background: #fafafa;
+      font-size: 13px; color: #555; cursor: pointer;
+    }
+    .suggestion-btn:hover { border-color: #667eea; color: #667eea; background: #f0f3ff; }
+    .chat-messages {
+      flex: 1; overflow-y: auto; padding: 16px;
+      display: flex; flex-direction: column; gap: 12px;
+      -webkit-overflow-scrolling: touch;
+    }
+    .message {
+      max-width: 90%; padding: 10px 14px; border-radius: 12px;
+      font-size: 14px; line-height: 1.5; word-wrap: break-word;
+    }
+    .message.user { align-self: flex-end; background: #667eea; color: white; border-bottom-right-radius: 4px; }
+    .message.agent { align-self: flex-start; background: #f0f0f0; color: #333; border-bottom-left-radius: 4px; }
+    .message.system { align-self: center; background: transparent; color: #999; font-size: 12px; padding: 4px; }
+    .message pre { background: rgba(0,0,0,0.06); padding: 8px; border-radius: 6px; font-size: 12px; overflow-x: auto; margin: 6px 0; }
+    .preview-link { color: #667eea; cursor: pointer; text-decoration: underline; text-decoration-style: dotted; }
+    .status-msg { align-self: center; color: #999; font-size: 12px; padding: 4px 8px; }
+    .status-msg::before {
+      content: ''; display: inline-block; width: 12px; height: 12px;
+      border: 2px solid #999; border-top-color: transparent; border-radius: 50%;
+      animation: spin 0.8s linear infinite; margin-right: 6px; vertical-align: middle;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .chat-input-area {
+      padding: 12px; border-top: 1px solid #eee;
+      display: flex; gap: 8px; flex-shrink: 0;
+      position: relative; padding-bottom: max(12px, env(safe-area-inset-bottom));
+    }
+    .chat-input-area input {
+      flex: 1; padding: 10px 14px; border: 1px solid #ddd;
+      border-radius: 8px; font-size: 14px; outline: none;
+    }
+    .chat-input-area input:focus { border-color: #667eea; }
+    .chat-input-area button {
+      padding: 10px 20px; background: #667eea; color: white;
+      border: none; border-radius: 8px; font-size: 14px; cursor: pointer;
+    }
+    .chat-input-area button:disabled { background: #ccc; cursor: not-allowed; }
+    .input-dropdown {
+      position: absolute; bottom: 100%; left: 0; right: 70px;
+      background: white; border: 1px solid #ddd; border-radius: 8px;
+      box-shadow: 0 -4px 12px rgba(0,0,0,0.1); max-height: 160px;
+      overflow-y: auto; display: none; z-index: 100;
+    }
+    .input-dropdown.show { display: block; }
+    .input-dropdown-item { padding: 10px 14px; cursor: pointer; font-size: 14px; border-bottom: 1px solid #f0f0f0; }
+    .input-dropdown-item:hover, .input-dropdown-item.active { background: #f0f3ff; color: #667eea; }
+    .input-dropdown-item .match { font-weight: 600; color: #667eea; }
+  </style>
+</head>
+<body>
+  <div class="chat-header">
+    <span>💬 智能助手</span>
+    <span style="display:flex;align-items:center;gap:6px;">
+      <span id="chatPageLabel" style="font-size:12px;color:#999;font-weight:400;">仪表盘</span>
+      <button class="fullscreen-btn" id="fsBtn" title="全屏模式">⛶</button>
+    </span>
+  </div>
+  <div class="suggestions" id="suggestionsArea">
+    <div class="label">💡 推荐问题</div>
+    <div id="suggestionsList"></div>
+  </div>
+  <div class="chat-messages" id="chatMessages">
+    <div class="message system">连接中...</div>
+  </div>
+  <div class="chat-input-area">
+    <div class="input-dropdown" id="inputDropdown"></div>
+    <input type="text" id="chatInput" placeholder="输入问题或指令..." autocomplete="off" />
+    <button id="sendBtn">发送</button>
+  </div>
+
+  <script>
+  const HOST = 'agent-host';
+  const CHAT = 'agent-chat';
+  let isConnected = false;
+  let currentSuggestions = [];
+  let dropdownIndex = -1;
+
+  function post(type, payload) {
+    window.parent.postMessage({ source: CHAT, type, ...payload }, location.origin);
+  }
+
+  function scrollChat() {
+    const c = document.getElementById('chatMessages');
+    c.scrollTop = c.scrollHeight;
+  }
+
+  function renderSuggestions(arr) {
+    currentSuggestions = arr || [];
+    const el = document.getElementById('suggestionsList');
+    if (!arr || !arr.length) {
+      el.innerHTML = '<button type="button" class="suggestion-btn">有什么可以帮你的？</button>';
+      el.querySelector('.suggestion-btn').onclick = () => useSuggestionText('有什么可以帮你的？');
+      return;
+    }
+    el.innerHTML = arr.map(s =>
+      '<button type="button" class="suggestion-btn">' + escHtml(s) + '</button>'
+    ).join('');
+    el.querySelectorAll('.suggestion-btn').forEach((btn, i) => {
+      btn.onclick = () => useSuggestionText(arr[i]);
+    });
+  }
+
+  function useSuggestionText(text) {
+    document.getElementById('chatInput').value = text;
+    closeDropdown();
+    sendMessage();
+  }
+
+  function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function appendMessage(role, text, html) {
+    removeStatusMessage();
+    const d = document.createElement('div');
+    if (role === 'user') {
+      d.className = 'message user';
+      d.textContent = text;
+    } else if (role === 'agent') {
+      d.className = 'message agent';
+      d.dataset.rawText = text;
+      d.innerHTML = html || escHtml(text);
+    } else {
+      d.className = 'message system';
+      d.textContent = text;
+    }
+    document.getElementById('chatMessages').appendChild(d);
+    scrollChat();
+  }
+
+  function addStatusMessage(t) {
+    removeStatusMessage();
+    const d = document.createElement('div');
+    d.className = 'status-msg';
+    d.id = 'curStatus';
+    d.textContent = t;
+    document.getElementById('chatMessages').appendChild(d);
+    scrollChat();
+  }
+
+  function removeStatusMessage() {
+    const e = document.getElementById('curStatus');
+    if (e) e.remove();
+  }
+
+  function setSendDisabled(disabled) {
+    document.getElementById('sendBtn').disabled = disabled;
+  }
+
+  function syncFull(data) {
+    if (data.connected != null) isConnected = data.connected;
+    if (data.pageLabel) document.getElementById('chatPageLabel').textContent = data.pageLabel;
+    if (data.suggestions) renderSuggestions(data.suggestions);
+    if (data.sendDisabled != null) setSendDisabled(data.sendDisabled);
+    if (data.messages) {
+      const container = document.getElementById('chatMessages');
+      container.innerHTML = '';
+      data.messages.forEach(m => {
+        if (m.role === 'status') addStatusMessage(m.text);
+        else appendMessage(m.role, m.text, m.html);
+      });
+      if (!container.children.length) {
+        container.innerHTML = '<div class="message system">连接到 Agent 中...</div>';
+      }
+    }
+  }
+
+  function sendMessage() {
+    const input = document.getElementById('chatInput');
+    const text = input.value.trim();
+    if (!text || !isConnected) return;
+    closeDropdown();
+    post('send', { content: text });
+  }
+
+  function closeDropdown() {
+    document.getElementById('inputDropdown').classList.remove('show');
+    dropdownIndex = -1;
+  }
+
+  function onChatInput() {
+    const val = document.getElementById('chatInput').value.trim();
+    if (!val || !currentSuggestions.length) { closeDropdown(); return; }
+    const filtered = currentSuggestions.filter(s => s.toLowerCase().includes(val.toLowerCase()));
+    if (!filtered.length) { closeDropdown(); return; }
+    const dd = document.getElementById('inputDropdown');
+    dd.innerHTML = filtered.map((s, i) => {
+      const idx = s.toLowerCase().indexOf(val.toLowerCase());
+      const highlighted = escHtml(s.substring(0, idx)) + '<span class="match">' +
+        escHtml(s.substring(idx, idx + val.length)) + '</span>' + escHtml(s.substring(idx + val.length));
+      return '<div class="input-dropdown-item" data-index="' + i + '">' + highlighted + '</div>';
+    }).join('');
+    dd.classList.add('show');
+    dropdownIndex = -1;
+    dd.querySelectorAll('.input-dropdown-item').forEach((el, i) => {
+      el.onclick = () => {
+        document.getElementById('chatInput').value = filtered[i];
+        closeDropdown();
+        sendMessage();
+      };
+    });
+  }
+
+  function onChatKeydown(e) {
+    const dd = document.getElementById('inputDropdown');
+    const items = dd.querySelectorAll('.input-dropdown-item');
+    if (dd.classList.contains('show') && items.length) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        dropdownIndex = Math.min(dropdownIndex + 1, items.length - 1);
+        items.forEach((it, i) => it.classList.toggle('active', i === dropdownIndex));
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        dropdownIndex = Math.max(dropdownIndex - 1, 0);
+        items.forEach((it, i) => it.classList.toggle('active', i === dropdownIndex));
+      } else if (e.key === 'Enter' && dropdownIndex >= 0) {
+        e.preventDefault();
+        items[dropdownIndex].click();
+        return;
+      } else if (e.key === 'Escape') {
+        closeDropdown();
+        return;
+      }
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      closeDropdown();
+      sendMessage();
+    }
+  }
+
+  document.getElementById('chatInput').addEventListener('input', onChatInput);
+  document.getElementById('chatInput').addEventListener('keydown', onChatKeydown);
+  document.getElementById('sendBtn').addEventListener('click', sendMessage);
+  document.getElementById('fsBtn').addEventListener('click', () => post('openFullscreen'));
+  document.getElementById('chatMessages').addEventListener('click', (e) => {
+    const el = e.target.closest('[data-preview-type]');
+    if (!el) return;
+    e.preventDefault();
+    post('preview', { previewType: el.dataset.previewType, previewId: el.dataset.previewId });
+  }, true);
+
+  window.addEventListener('message', (ev) => {
+    if (ev.origin !== location.origin) return;
+    const msg = ev.data;
+    if (!msg || msg.source !== HOST) return;
+    switch (msg.type) {
+      case 'sync':
+        syncFull(msg);
+        break;
+      case 'append':
+        appendMessage(msg.role, msg.text, msg.html);
+        break;
+      case 'status':
+        if (msg.clear) removeStatusMessage();
+        else addStatusMessage(msg.text);
+        break;
+      case 'suggestions':
+        renderSuggestions(msg.suggestions);
+        break;
+      case 'pageLabel':
+        document.getElementById('chatPageLabel').textContent = msg.label;
+        break;
+      case 'sendDisabled':
+        setSendDisabled(msg.disabled);
+        break;
+      case 'clearInput':
+        document.getElementById('chatInput').value = '';
+        break;
+    }
+  });
+
+  post('ready');
+  </script>
+</body>
+</html>

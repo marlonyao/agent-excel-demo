@@ -129,6 +129,42 @@
       transition: width 0.3s, opacity 0.3s;
     }
     .chat-panel.collapsed { width: 0; overflow: hidden; opacity: 0; border: none; }
+
+    /* 窄屏：侧边栏助手改为 iframe 抽屉 */
+    .chat-iframe-overlay {
+      display: none; position: fixed; inset: 0; z-index: 9000;
+      pointer-events: none;
+    }
+    .chat-iframe-overlay.open { display: block; pointer-events: auto; }
+    .chat-iframe-backdrop {
+      position: absolute; inset: 0; background: rgba(0,0,0,0.35);
+      opacity: 0; transition: opacity 0.25s;
+    }
+    .chat-iframe-overlay.open .chat-iframe-backdrop { opacity: 1; }
+    .chat-iframe-sheet {
+      position: absolute; left: 0; right: 0; bottom: 0; top: 48px;
+      background: #fff; border-radius: 16px 16px 0 0;
+      box-shadow: 0 -4px 24px rgba(0,0,0,0.15);
+      display: flex; flex-direction: column;
+      transform: translateY(100%); transition: transform 0.3s ease;
+      overflow: hidden;
+    }
+    .chat-iframe-overlay.open .chat-iframe-sheet { transform: translateY(0); }
+    .chat-iframe-sheet iframe {
+      flex: 1; width: 100%; border: none; display: block;
+    }
+    @media (max-width: 768px) {
+      .chat-panel--desktop { display: none !important; }
+      .main { flex-direction: column; }
+      .sidebar { width: 100%; max-height: 52px; flex-direction: row; overflow-x: auto; }
+      .sidebar-logo, .sidebar-footer { display: none; }
+      .sidebar-menu { display: flex; flex-direction: row; padding: 4px 8px; flex: 1; }
+      .menu-item { padding: 8px 12px; white-space: nowrap; border-left: none; border-bottom: 3px solid transparent; }
+      .menu-item.active { border-left: none; border-bottom-color: #667eea; }
+    }
+    @media (min-width: 769px) {
+      .chat-iframe-overlay { display: none !important; }
+    }
     .chat-header { padding: 14px 18px; border-bottom: 1px solid #eee; font-weight: 600; font-size: 15px; color: #333; display: flex; justify-content: space-between; align-items: center; }
     .chat-messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
     .message { max-width: 90%; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.5; word-wrap: break-word; }
@@ -332,8 +368,8 @@
       </div>
     </div>
 
-    <!-- 聊天面板 -->
-    <div class="chat-panel" id="chatPanel">
+    <!-- 宽屏：内联聊天面板 -->
+    <div class="chat-panel chat-panel--desktop" id="chatPanel">
       <div class="chat-header">
         <span>💬 智能助手</span>
         <span style="display:flex;align-items:center;gap:6px;">
@@ -357,6 +393,14 @@
         <input type="text" id="chatInput" placeholder="输入问题或指令..." autocomplete="off" oninput="onChatInput()" onkeydown="onChatKeydown(event)" />
         <button id="sendBtn" onclick="sendMessage()">发送</button>
       </div>
+    </div>
+  </div>
+
+  <!-- 窄屏：助手 iframe 抽屉（WebSocket / Tool 仍在父页） -->
+  <div class="chat-iframe-overlay" id="chatIframeOverlay">
+    <div class="chat-iframe-backdrop" onclick="toggleChat()"></div>
+    <div class="chat-iframe-sheet">
+      <iframe id="chatIframe" src="chat-iframe.html" title="智能助手"></iframe>
     </div>
   </div>
 
@@ -414,13 +458,104 @@
   const cache = { dashboard: null, files: null, notes: null };
   const pageLabels = { dashboard:'仪表盘', files:'文件管理', notes:'笔记', excel:'Excel 编辑器', settings:'设置' };
 
+  // ===== 窄屏 iframe 助手桥接 =====
+  const CHAT_HOST_SOURCE = 'agent-host';
+  const CHAT_IFRAME_SOURCE = 'agent-chat';
+  let chatIframeReady = false;
+
+  function isNarrowLayout() {
+    return window.matchMedia('(max-width: 768px)').matches;
+  }
+
+  function postToChatIframe(msg) {
+    const frame = document.getElementById('chatIframe');
+    if (!frame || !frame.contentWindow) return;
+    frame.contentWindow.postMessage({ source: CHAT_HOST_SOURCE, ...msg }, location.origin);
+  }
+
+  function collectPanelMessagesForIframe() {
+    const els = document.getElementById('chatMessages').children;
+    const messages = [];
+    for (const el of els) {
+      if (el.id === 'curStatus') {
+        messages.push({ role: 'status', text: el.textContent.trim() });
+        continue;
+      }
+      const cls = el.className;
+      let role = 'system';
+      if (cls.includes('user')) role = 'user';
+      else if (cls.includes('agent')) role = 'agent';
+      const text = el.dataset.rawText || el.textContent.trim();
+      const item = { role, text };
+      if (role === 'agent') item.html = el.innerHTML;
+      messages.push(item);
+    }
+    return messages;
+  }
+
+  function syncChatIframeFull() {
+    if (!chatIframeReady) return;
+    postToChatIframe({
+      type: 'sync',
+      connected: isConnected,
+      pageLabel: pageLabels[currentPage] || currentPage,
+      suggestions: currentSuggestions,
+      sendDisabled: document.getElementById('sendBtn').disabled,
+      messages: collectPanelMessagesForIframe(),
+    });
+  }
+
+  function mirrorChatAppend(role, text, html) {
+    if (!isNarrowLayout() || !chatIframeReady) return;
+    postToChatIframe({ type: 'append', role, text, html });
+  }
+
+  function handleChatIframeMessage(ev) {
+    if (ev.origin !== location.origin) return;
+    const msg = ev.data;
+    if (!msg || msg.source !== CHAT_IFRAME_SOURCE) return;
+    switch (msg.type) {
+      case 'ready':
+        chatIframeReady = true;
+        syncChatIframeFull();
+        break;
+      case 'send':
+        if (msg.content) sendChatText(msg.content);
+        break;
+      case 'preview':
+        if (msg.previewType && msg.previewId) {
+          document.getElementById('chatIframeOverlay').classList.remove('open');
+          updateChatToggleLabel();
+          openPreview(msg.previewType, msg.previewId);
+        }
+        break;
+      case 'openFullscreen':
+        document.getElementById('chatIframeOverlay').classList.remove('open');
+        updateChatToggleLabel();
+        openFullscreen();
+        break;
+    }
+  }
+
+  function updateChatToggleLabel() {
+    const btn = document.getElementById('chatToggleBtn');
+    if (isNarrowLayout()) {
+      const open = document.getElementById('chatIframeOverlay').classList.contains('open');
+      btn.textContent = open ? '💬 关闭' : '💬 助手';
+    } else {
+      const collapsed = document.getElementById('chatPanel').classList.contains('collapsed');
+      btn.textContent = collapsed ? '💬 显示助手' : '💬 助手';
+    }
+  }
+
   // ===== 页面切换 =====
   function switchPage(page) {
     currentPage = page;
     document.querySelectorAll('.menu-item').forEach(el => el.classList.toggle('active', el.dataset.page === page));
     document.querySelectorAll('.page').forEach(el => el.classList.toggle('active', el.id === 'page-' + page));
     document.getElementById('chatPageLabel').textContent = pageLabels[page] || page;
-    if (page === 'excel' && !luckysheetReady) { initLuckysheet(); luckysheetReady = true; }
+    postToChatIframe({ type: 'pageLabel', label: pageLabels[page] || page });
+    if (page === 'excel' && !luckysheetReady && currentExcelFile) loadLuckysheet();
     loadPage(page);
     requestSuggestions();
   }
@@ -472,25 +607,21 @@
       '<div class="efl-meta">' + f.size + ' · ' + f.modified + '</div></div></div>'
     ).join('');
   }
-  function openExcel(id, name) {
-    currentExcelFile = name;
+  function updateExcelChrome(name) {
     document.getElementById('excelFileName').textContent = name;
     document.getElementById('excelFileBadge').style.display = 'inline-block';
-    // 刷新文件列表高亮
     if (cache.files) renderExcelFileList(cache.files);
-    // 如果还没切到 excel 页面先切过去
-    if (currentPage !== 'excel') switchPage('excel');
-    // 加载数据
-    if (luckysheetReady) {
-      luckysheet.destroy();
-      luckysheetReady = false;
-      initLuckysheet();
-      luckysheetReady = true;
-    } else if (!luckysheetReady) {
-      initLuckysheet();
-      luckysheetReady = true;
+  }
+
+  function openExcel(id, name) {
+    if (luckysheetReady && currentExcelFile === name) {
+      updateExcelChrome(name);
+      return;
     }
-    // 自动总结 Excel 内容
+    currentExcelFile = name;
+    updateExcelChrome(name);
+    if (currentPage !== 'excel') switchPage('excel');
+    loadLuckysheet();
     autoSummarizeExcel(name);
   }
 
@@ -503,28 +634,15 @@
       try {
         const sd = luckysheet.getSheetData();
         if (!sd) return;
-        const headers = [];
-        if (sd[0]) for (let c=0; c<Math.min(8, sd[0].length); c++) {
-          const cell = sd[0][c];
-          headers.push(cell && cell.v != null ? String(cell.v) : '');
-        }
-        const preview = [];
-        for (let r=1; r<Math.min(6, sd.length); r++) {
-          if (!sd[r]) continue;
-          const row = [];
-          for (let c=0; c<Math.min(8, sd[r].length); c++) {
-            const cell = sd[r][c];
-            row.push(cell && cell.v != null ? cell.v : '');
-          }
-          preview.push(row);
-        }
+        const sheetData = buildExcelPageData(sd);
+        const names = sheetData.dataRowLabels.join('、') || '（无）';
         isAutoSummary = true;
         const summaryReq = {
           type: 'chat',
-          content: '请简要总结这个 Excel 文件的内容，用2-3句话说明这是什么表格，包含什么数据。不要执行任何操作。',
+          content: `请用2-3句话总结 Excel「${name}」。系统统计：有效数据 ${sheetData.dataRowCount} 条（不含合计行），人员为 ${names}。必须按此人数与姓名总结，勿根据预览猜测。不要执行任何操作。`,
           pageContext: {
             page: 'excel',
-            data: { headers, sheetPreview: [headers, ...preview], fileName: name }
+            data: { fileName: name, ...sheetData },
           }
         };
         if (ws && isConnected) ws.send(JSON.stringify(summaryReq));
@@ -557,9 +675,17 @@
 
   // ===== 聊天面板 =====
   function toggleChat() {
+    if (isNarrowLayout()) {
+      document.getElementById('chatIframeOverlay').classList.toggle('open');
+      if (document.getElementById('chatIframeOverlay').classList.contains('open')) {
+        syncChatIframeFull();
+      }
+      updateChatToggleLabel();
+      return;
+    }
     const p = document.getElementById('chatPanel');
     p.classList.toggle('collapsed');
-    document.getElementById('chatToggleBtn').textContent = p.classList.contains('collapsed') ? '💬 显示助手' : '💬 助手';
+    updateChatToggleLabel();
   }
 
   // ===== 推荐问题 =====
@@ -576,24 +702,10 @@
       try {
         const sd = luckysheet.getSheetData();
         if (sd) {
-          // 获取表头
-          const headers = [];
-          if (sd[0]) for (let c = 0; c < Math.min(10, sd[0].length); c++) {
-            const cell = sd[0][c];
-            headers.push(cell && cell.v != null ? String(cell.v) : '');
-          }
-          // 获取前5行数据预览
-          const preview = [];
-          for (let r = 0; r < Math.min(5, sd.length); r++) {
-            if (!sd[r]) continue;
-            const row = [];
-            for (let c = 0; c < Math.min(10, sd[r].length); c++) {
-              const cell = sd[r][c];
-              row.push(cell && cell.v != null ? cell.v : '');
-            }
-            preview.push(row);
-          }
-          ctx.data = { sheetPreview: preview, headers, fileName: currentExcelFile || '未命名' };
+          ctx.data = {
+            fileName: currentExcelFile || '未命名',
+            ...buildExcelPageData(sd),
+          };
           // 获取当前选区
           try {
             const range = luckysheet.getRange();
@@ -615,7 +727,7 @@
               }
               ctx.data.selectedRange = rangeStr;
               ctx.data.selectedData = rangeData;
-              ctx.data.selectedHeaders = headers.slice(sc, ec+1);
+              ctx.data.selectedHeaders = (ctx.data.headers || []).slice(sc, ec + 1);
             }
           } catch(e2) {}
         }
@@ -631,6 +743,7 @@
     const el = document.getElementById('suggestionsList');
     if (!arr || !arr.length) { el.innerHTML = '<button class="suggestion-btn" onclick="useSuggestion(this)">有什么可以帮你的？</button>'; return; }
     el.innerHTML = arr.map(s => '<button class="suggestion-btn" onclick="useSuggestion(this)">' + s + '</button>').join('');
+    postToChatIframe({ type: 'suggestions', suggestions: currentSuggestions });
   }
   function useSuggestion(btn) { document.getElementById('chatInput').value = btn.textContent; closeDropdown(); sendMessage(); }
 
@@ -799,13 +912,37 @@
     ];
   }
 
-  function initLuckysheet() {
-    const celldata = getFileCelldata(currentExcelFile);
+  const LUCKYSHEET_COLUMN_LEN = { 0: 120, 1: 120, 2: 150, 3: 120, 4: 120, 5: 120, 6: 120 };
+
+  function destroyLuckysheet() {
+    if (!luckysheetReady) return;
+    try {
+      if (typeof luckysheet !== 'undefined' && luckysheet.destroy) luckysheet.destroy();
+    } catch (e) { /* Luckysheet destroy 偶发抛错，仍清空 DOM */ }
+    const el = document.getElementById('luckysheet');
+    if (el) el.innerHTML = '';
+    luckysheetReady = false;
+  }
+
+  function createLuckysheet(celldata, columnlen) {
+    destroyLuckysheet();
     luckysheet.create({
       container: 'luckysheet', title: 'Excel 编辑器', lang: 'zh',
       showinfobar: false, showsheetbar: true, showstatisticBar: true,
-      data: [{ name: 'Sheet1', status: 1, order: 0, celldata, config: { columnlen: { 0:120, 1:120, 2:150, 3:120, 4:120, 5:120 } } }],
+      data: [{
+        name: 'Sheet1', status: 1, order: 0, celldata,
+        config: { columnlen: columnlen || LUCKYSHEET_COLUMN_LEN },
+      }],
     });
+    luckysheetReady = true;
+  }
+
+  function loadLuckysheet() {
+    createLuckysheet(getFileCelldata(currentExcelFile));
+  }
+
+  function initLuckysheet() {
+    loadLuckysheet();
   }
 
   // ===== WebSocket =====
@@ -845,6 +982,7 @@
           div.dataset.rawText = summaryText;
           div.innerHTML = formatAgentMessageHtml(summaryText);
           container.appendChild(div);
+          mirrorChatAppend('agent', summaryText, div.innerHTML);
           syncCurrentSession('agent', summaryText);
           if (document.getElementById('fullscreenChat').classList.contains('active') && activeSessionId === '__current__') {
             loadSessionIntoFs('__current__');
@@ -854,6 +992,7 @@
           addAgentMessage(msg.content);
         }
         document.getElementById('sendBtn').disabled = false;
+        postToChatIframe({ type: 'sendDisabled', disabled: false });
         break;
       }
       case 'tool_call': executeTool(msg.id, msg.method, msg.params); break;
@@ -862,12 +1001,235 @@
   }
 
   // ===== Tool Runtime =====
-  function rebuildSheet() {
-    const sd = luckysheet.getSheetData(), cd = [];
-    for (let r = 0; r < sd.length; r++) { if (!sd[r]) continue; for (let c = 0; c < sd[r].length; c++) { if (!sd[r][c] || sd[r][c].v == null) continue; cd.push({r,c,v:{...sd[r][c]}}); } }
-    luckysheet.destroy();
-    luckysheet.create({ container:'luckysheet', title:'Excel 编辑器', lang:'zh', showinfobar:false, showsheetbar:true, showstatisticBar:true,
-      data:[{name:'Sheet1',status:1,order:0,celldata:cd,config:{columnlen:{0:120,1:120,2:150}}}] });
+  function sheetCellHasContent(cell) {
+    if (!cell) return false;
+    if (cell.v != null && cell.v !== '') return true;
+    return !!(cell.bg || cell.fc || cell.bl || cell.fs);
+  }
+
+  function sheetDataToCelldata(sd) {
+    const cd = [];
+    if (!sd) return cd;
+    for (let r = 0; r < sd.length; r++) {
+      if (!sd[r]) continue;
+      for (let c = 0; c < sd[r].length; c++) {
+        const cell = sd[r][c];
+        if (!sheetCellHasContent(cell)) continue;
+        cd.push({ r, c, v: { ...cell } });
+      }
+    }
+    return cd;
+  }
+
+  function luckysheetRefreshGrid() {
+    if (typeof luckysheet.jfrefreshgrid === 'function') luckysheet.jfrefreshgrid();
+    else if (typeof luckysheet.refresh === 'function') luckysheet.refresh();
+  }
+
+  function refreshLuckysheetView(forceRebuild) {
+    if (forceRebuild) rebuildSheet();
+    else luckysheetRefreshGrid();
+  }
+
+  /** Luckysheet 官方 setCellFormat（0-based 行列）；isRefresh 默认 false，批量后需 jfrefreshgrid */
+  function luckysheetSetFormat(r, c, attr, value, isRefresh) {
+    if (typeof luckysheet.setCellFormat !== 'function') return false;
+    luckysheet.setCellFormat(r, c, attr, value, { isRefresh: isRefresh === true });
+    return true;
+  }
+
+  function rebuildSheet(sd) {
+    const data = sd || luckysheet.getSheetData();
+    createLuckysheet(sheetDataToCelldata(data), { 0: 120, 1: 120, 2: 150 });
+  }
+
+  function upsertCelldataStyle(cd, r, c, params) {
+    let item = cd.find((x) => x.r === r && x.c === c);
+    if (!item) {
+      const raw = luckysheet.getCellValue(r, c);
+      item = {
+        r, c,
+        v: { v: raw != null ? raw : '', m: raw != null ? String(raw) : '', ct: { fa: 'General', t: 'g' } },
+      };
+      cd.push(item);
+    }
+    applyStyleToCell(item.v, params);
+    return item;
+  }
+
+  function ensureSheetCell(sd, r, c) {
+    if (!sd[r]) sd[r] = [];
+    if (!sd[r][c]) {
+      const raw = luckysheet.getCellValue(r, c);
+      sd[r][c] = { v: raw != null ? raw : '', m: raw != null ? String(raw) : '', ct: { fa: 'General', t: 'g' } };
+    }
+    return sd[r][c];
+  }
+
+  function applyStyleToCell(cell, params) {
+    if (params.bold !== undefined) cell.bl = params.bold ? 1 : 0;
+    if (params.bgColor) cell.bg = params.bgColor;
+    if (params.fontColor) cell.fc = params.fontColor;
+    if (params.fontSize) cell.fs = params.fontSize;
+  }
+
+  function cellNumericValue(cell) {
+    if (!cell || cell.v == null || cell.v === '') return null;
+    if (typeof cell.v === 'number') return cell.v;
+    const n = parseFloat(String(cell.v).replace(/,/g, ''));
+    return Number.isNaN(n) ? null : n;
+  }
+
+  function cellNumericAt(sd, r, c) {
+    const fromCell = cellNumericValue(sd[r]?.[c]);
+    if (fromCell != null) return fromCell;
+    const v = luckysheet.getCellValue(r, c);
+    if (v == null || v === '') return null;
+    if (typeof v === 'number') return v;
+    const n = parseFloat(String(v).replace(/,/g, ''));
+    return Number.isNaN(n) ? null : n;
+  }
+
+  function indexToCol(i) {
+    let s = '';
+    let n = i;
+    while (n >= 0) {
+      s = String.fromCharCode(65 + (n % 26)) + s;
+      n = Math.floor(n / 26) - 1;
+    }
+    return s;
+  }
+
+  function cellDisplayValue(cell) {
+    if (!cell || cell.v == null || cell.v === '') return '';
+    return String(cell.v).trim();
+  }
+
+  function isTotalRowLabel(text) {
+    return /^(合计|总计|小计|total|sum)$/i.test(String(text || '').trim());
+  }
+
+  function isTotalColumnHeader(text) {
+    const t = String(text || '').trim();
+    return /合计|总计|小计|Q1\s*合计|季度合计/i.test(t);
+  }
+
+  const HIGHLIGHT_BG = '#ff9800';
+
+  function isConditionalHighlightBg(bg) {
+    return bg === HIGHLIGHT_BG || bg === '#ffff00';
+  }
+
+  /** 统计有内容的区域；dataRowCount 不含表头行与合计/总计行 */
+  function computeSheetBounds(sd) {
+    if (!sd || !sd.length) {
+      return { gridRows: 0, gridCols: 0, usedRange: null, usedRows: 0, usedCols: 0, dataRowCount: 0, headers: [] };
+    }
+    let minR = Infinity, maxR = -1, minC = Infinity, maxC = -1;
+    for (let r = 0; r < sd.length; r++) {
+      if (!sd[r]) continue;
+      for (let c = 0; c < sd[r].length; c++) {
+        if (!sheetCellHasContent(sd[r][c])) continue;
+        if (r < minR) minR = r;
+        if (r > maxR) maxR = r;
+        if (c < minC) minC = c;
+        if (c > maxC) maxC = c;
+      }
+    }
+    if (maxR < 0) {
+      return {
+        gridRows: sd.length,
+        gridCols: sd[0] ? sd[0].length : 0,
+        usedRange: null,
+        usedRows: 0,
+        usedCols: 0,
+        dataRowCount: 0,
+        headers: [],
+        minR: 0, maxR: -1, minC: 0, maxC: -1,
+      };
+    }
+    const headers = [];
+    for (let c = minC; c <= maxC; c++) headers.push(cellDisplayValue(sd[0]?.[c]));
+    let dataRowCount = 0;
+    for (let r = 1; r <= maxR; r++) {
+      if (!sd[r]) continue;
+      let hasContent = false;
+      for (let c = minC; c <= maxC; c++) {
+        if (sheetCellHasContent(sd[r][c])) { hasContent = true; break; }
+      }
+      if (!hasContent) continue;
+      if (isTotalRowLabel(cellDisplayValue(sd[r][minC]))) continue;
+      dataRowCount++;
+    }
+    return {
+      gridRows: sd.length,
+      gridCols: sd[0] ? sd[0].length : 0,
+      usedRange: `${indexToCol(minC)}${minR + 1}:${indexToCol(maxC)}${maxR + 1}`,
+      usedRows: maxR - minR + 1,
+      usedCols: maxC - minC + 1,
+      dataRowCount,
+      headers,
+      minR, maxR, minC, maxC,
+    };
+  }
+
+  /** 有内容区域内全部行（含表头、合计），用于预览 */
+  function buildSheetPreview(sd, bounds) {
+    const preview = [];
+    if (!sd || bounds.maxR < bounds.minR) return preview;
+    for (let r = bounds.minR; r <= bounds.maxR; r++) {
+      if (!sd[r]) continue;
+      const row = [];
+      for (let c = bounds.minC; c <= bounds.maxC; c++) {
+        const cell = sd[r][c];
+        row.push(cell && cell.v != null ? cell.v : '');
+      }
+      preview.push(row);
+    }
+    return preview;
+  }
+
+  /** 数据行首列标签（不含表头、合计行） */
+  function extractDataRowLabels(sd, bounds) {
+    const labels = [];
+    if (!sd || bounds.maxR < 1) return labels;
+    for (let r = 1; r <= bounds.maxR; r++) {
+      if (!sd[r]) continue;
+      let hasContent = false;
+      for (let c = bounds.minC; c <= bounds.maxC; c++) {
+        if (sheetCellHasContent(sd[r][c])) { hasContent = true; break; }
+      }
+      if (!hasContent) continue;
+      const label = cellDisplayValue(sd[r][bounds.minC]);
+      if (isTotalRowLabel(label)) continue;
+      labels.push(label);
+    }
+    return labels;
+  }
+
+  function buildExcelPageData(sd) {
+    const bounds = computeSheetBounds(sd);
+    return {
+      headers: bounds.headers,
+      sheetPreview: buildSheetPreview(sd, bounds),
+      dataRowLabels: extractDataRowLabels(sd, bounds),
+      usedRange: bounds.usedRange,
+      usedRows: bounds.usedRows,
+      usedCols: bounds.usedCols,
+      dataRowCount: bounds.dataRowCount,
+      gridRows: bounds.gridRows,
+    };
+  }
+
+  function matchesNumericCondition(num, condition, threshold) {
+    switch (condition) {
+      case 'gt': return num > threshold;
+      case 'gte': return num >= threshold;
+      case 'lt': return num < threshold;
+      case 'lte': return num <= threshold;
+      case 'eq': return num === threshold;
+      default: return false;
+    }
   }
 
   function colToIndex(col) { let i=0; for (let x=0;x<col.length;x++) i=i*26+(col.charCodeAt(x)-65); return i; }
@@ -898,13 +1260,34 @@
           result={ok:true}; break;
         }
         case 'get_sheet_info': {
-          const sd=luckysheet.getSheetData();
-          const rows=sd?sd.length:84;
-          const cols=sd&&sd[0]?sd[0].length:60;
-          // 获取表头（第1行）
-          const headers=[];
-          if(sd&&sd[0]) for(let c=0;c<cols;c++){const cell=sd[0][c]; headers.push(cell&&cell.v!=null?String(cell.v):'');}
-          result={rows,cols,name:'Sheet1',headers};
+          const sd = luckysheet.getSheetData();
+          const bounds = computeSheetBounds(sd);
+          const totalColumnLetters = [];
+          const dataColumnLetters = [];
+          for (let c = bounds.minC; c <= bounds.maxC; c++) {
+            const letter = indexToCol(c);
+            if (isTotalColumnHeader(cellDisplayValue(sd[0]?.[c]))) totalColumnLetters.push(letter);
+            else if (c > bounds.minC) dataColumnLetters.push(letter);
+          }
+          const totalRowNumber = isTotalRowLabel(cellDisplayValue(sd[bounds.maxR]?.[bounds.minC]))
+            ? bounds.maxR + 1
+            : null;
+          result = {
+            name: 'Sheet1',
+            headers: bounds.headers,
+            usedRange: bounds.usedRange,
+            usedRows: bounds.usedRows,
+            usedCols: bounds.usedCols,
+            dataRowCount: bounds.dataRowCount,
+            dataRowLabels: extractDataRowLabels(sd, bounds),
+            dataColumnLetters,
+            totalColumnLetters,
+            totalRowNumber,
+            gridRows: bounds.gridRows,
+            gridCols: bounds.gridCols,
+            rows: bounds.usedRows,
+            cols: bounds.usedCols,
+          };
           break;
         }
         case 'insert_column': {
@@ -926,17 +1309,69 @@
           // 2. 插入表头
           cd.push({r:0, c:insertCol, v:{v:params.header, m:params.header, ct:{fa:'General',t:'g'}, fc:'#333', bl:1, bg:'#fff3cd'}});
           // 3. 重建
-          luckysheet.destroy();
-          luckysheet.create({ container:'luckysheet', title:'Excel 编辑器', lang:'zh', showinfobar:false, showsheetbar:true, showstatisticBar:true,
-            data:[{name:'Sheet1',status:1,order:0,celldata:cd,config:{columnlen:{0:120,1:120,2:150,3:120,4:120,5:120,6:120}}}] });
+          createLuckysheet(cd, LUCKYSHEET_COLUMN_LEN);
           result={ok:true,col:params.col,header:params.header};
           break;
         }
         case 'apply_cell_style': {
-          const r=params.row-1, c=colToIndex(params.col), sd=luckysheet.getSheetData();
-          if(!sd[r])sd[r]=[]; if(!sd[r][c])sd[r][c]={v:'',m:'',ct:{fa:'General',t:'g'}};
-          const cell=sd[r][c]; if(params.bold!==undefined)cell.bl=params.bold?1:0; if(params.bgColor)cell.bg=params.bgColor; if(params.fontColor)cell.fc=params.fontColor; if(params.fontSize)cell.fs=params.fontSize;
-          rebuildSheet(); result={ok:true}; break;
+          const r = params.row - 1, c = colToIndex(params.col);
+          const cd = sheetDataToCelldata(luckysheet.getSheetData());
+          upsertCelldataStyle(cd, r, c, params);
+          createLuckysheet(cd, LUCKYSHEET_COLUMN_LEN);
+          result = { ok: true, cell: params.col + params.row };
+          break;
+        }
+        case 'highlight_cells_where': {
+          const sd = luckysheet.getSheetData();
+          if (!sd) { result = { ok: false, error: 'no sheet data' }; break; }
+          const bounds = computeSheetBounds(sd);
+          const bgColor = params.bgColor || HIGHLIGHT_BG;
+          const excludeTotalRow = params.excludeTotalRow !== false;
+          const excludeTotalCols = params.excludeTotalColumns !== false;
+          let startRow = (params.startRow != null ? params.startRow : 2) - 1;
+          let endRow = (params.endRow != null ? params.endRow : bounds.maxR + 1) - 1;
+          let startCol = params.startCol != null ? colToIndex(params.startCol) : bounds.minC + 1;
+          let endCol = params.endCol != null ? colToIndex(params.endCol) : bounds.maxC;
+          if (excludeTotalRow) {
+            while (endRow >= startRow && isTotalRowLabel(cellDisplayValue(sd[endRow]?.[bounds.minC]))) endRow--;
+          }
+          if (excludeTotalCols) {
+            while (endCol >= startCol && isTotalColumnHeader(cellDisplayValue(sd[0]?.[endCol]))) endCol--;
+          }
+          const cd = sheetDataToCelldata(sd);
+          for (let r = bounds.minR; r <= bounds.maxR; r++) {
+            const skipRow = excludeTotalRow && r > 0 && isTotalRowLabel(cellDisplayValue(sd[r]?.[bounds.minC]));
+            for (let c = bounds.minC; c <= bounds.maxC; c++) {
+              const skipCol = excludeTotalCols && isTotalColumnHeader(cellDisplayValue(sd[0]?.[c]));
+              if (!skipRow && !skipCol) continue;
+              const item = cd.find((x) => x.r === r && x.c === c);
+              if (item && item.v && isConditionalHighlightBg(item.v.bg)) {
+                delete item.v.bg;
+              }
+            }
+          }
+          const highlighted = [];
+          for (let r = startRow; r <= endRow; r++) {
+            if (excludeTotalRow && isTotalRowLabel(cellDisplayValue(sd[r]?.[bounds.minC]))) continue;
+            for (let c = startCol; c <= endCol; c++) {
+              if (excludeTotalCols && isTotalColumnHeader(cellDisplayValue(sd[0]?.[c]))) continue;
+              const num = cellNumericAt(sd, r, c);
+              if (num == null) continue;
+              if (!matchesNumericCondition(num, params.condition, params.value)) continue;
+              upsertCelldataStyle(cd, r, c, { bgColor });
+              highlighted.push(indexToCol(c) + (r + 1));
+            }
+          }
+          createLuckysheet(cd, LUCKYSHEET_COLUMN_LEN);
+          result = {
+            ok: true,
+            highlightedCount: highlighted.length,
+            cells: highlighted.slice(0, 40),
+            scannedRange: `${indexToCol(startCol)}${startRow + 1}:${indexToCol(endCol)}${endRow + 1}`,
+            excludedTotalRow: excludeTotalRow,
+            excludedTotalColumns: excludeTotalCols,
+          };
+          break;
         }
         case 'insert_formula': { luckysheet.setCellValue(params.row-1, colToIndex(params.col), params.formula); result={ok:true,cell:params.col+params.row,formula:params.formula}; break; }
         case 'list_files': {
@@ -972,25 +1407,69 @@
       .replace(/\n/g, '<br>');
     return renderPreviewLinks(html);
   }
-  function addUserMessage(t) { const d=document.createElement('div');d.className='message user';d.textContent=t;document.getElementById('chatMessages').appendChild(d);scrollChat(); }
-  function addAgentMessage(t) { const d=document.createElement('div');d.className='message agent';d.dataset.rawText=t;d.innerHTML=formatAgentMessageHtml(t);document.getElementById('chatMessages').appendChild(d);scrollChat(); }
-  function addSystemMessage(t) { const d=document.createElement('div');d.className='message system';d.textContent=t;document.getElementById('chatMessages').appendChild(d);scrollChat(); }
-  function addStatusMessage(t) { removeStatusMessage(); const d=document.createElement('div');d.className='status-msg';d.id='curStatus';d.textContent=t;document.getElementById('chatMessages').appendChild(d);scrollChat(); }
-  function removeStatusMessage() { const e=document.getElementById('curStatus'); if(e)e.remove(); }
+  function addUserMessage(t) {
+    const d=document.createElement('div');d.className='message user';d.textContent=t;
+    document.getElementById('chatMessages').appendChild(d);scrollChat();
+    mirrorChatAppend('user', t);
+  }
+  function addAgentMessage(t) {
+    const html = formatAgentMessageHtml(t);
+    const d=document.createElement('div');d.className='message agent';d.dataset.rawText=t;d.innerHTML=html;
+    document.getElementById('chatMessages').appendChild(d);scrollChat();
+    mirrorChatAppend('agent', t, html);
+  }
+  function addSystemMessage(t) {
+    const d=document.createElement('div');d.className='message system';d.textContent=t;
+    document.getElementById('chatMessages').appendChild(d);scrollChat();
+    mirrorChatAppend('system', t);
+  }
+  function addStatusMessage(t) {
+    removeStatusMessage();
+    const d=document.createElement('div');d.className='status-msg';d.id='curStatus';d.textContent=t;
+    document.getElementById('chatMessages').appendChild(d);scrollChat();
+    if (isNarrowLayout() && chatIframeReady) postToChatIframe({ type: 'status', text: t });
+  }
+  function removeStatusMessage() {
+    const e=document.getElementById('curStatus'); if(e)e.remove();
+    if (isNarrowLayout() && chatIframeReady) postToChatIframe({ type: 'status', clear: true });
+  }
   function scrollChat() { const c = document.getElementById('chatMessages'); c.scrollTop = c.scrollHeight; }
 
+  function getChatHistoryForAgent(maxMessages = 12) {
+    const cur = chatSessions.find((x) => x.id === '__current__');
+    if (!cur || !cur.messages || !cur.messages.length) return [];
+    return cur.messages
+      .filter((m) => m.role === 'user' || m.role === 'agent')
+      .slice(-maxMessages)
+      .map((m) => ({
+        role: m.role === 'user' ? 'user' : 'assistant',
+        content: (m.text || '').slice(0, 800),
+      }));
+  }
+
   // ===== 发送消息 =====
-  function sendMessage() {
-    const input = document.getElementById('chatInput');
-    const text = input.value.trim();
+  function sendChatText(text) {
     if (!text || !isConnected) return;
+    const chatHistory = getChatHistoryForAgent();
     addUserMessage(text);
-    input.value = '';
+    const input = document.getElementById('chatInput');
+    if (input) input.value = '';
     closeDropdown();
     document.getElementById('sendBtn').disabled = true;
-    ws.send(JSON.stringify({ type: 'chat', content: text, pageContext: getPageContext() }));
-    // 同步到会话存储
+    postToChatIframe({ type: 'sendDisabled', disabled: true });
+    postToChatIframe({ type: 'clearInput' });
+    ws.send(JSON.stringify({
+      type: 'chat',
+      content: text,
+      pageContext: getPageContext(),
+      chatHistory,
+    }));
     syncCurrentSession('user', text);
+  }
+
+  function sendMessage() {
+    const input = document.getElementById('chatInput');
+    sendChatText(input.value.trim());
   }
 
   // ===== 全屏聊天模式 =====
@@ -1249,6 +1728,7 @@
     }
     // 清空面板消息，创建新的 __current__
     document.getElementById('chatMessages').innerHTML = '<div class="message system">新的会话已开始</div>';
+    syncChatIframeFull();
     chatSessions.unshift({ id: '__current__', title: '当前会话 · ' + pageNames[currentPage], messages: [{ role:'system', text:'新的会话已开始' }], page: currentPage, createdAt: new Date().toLocaleString() });
     activeSessionId = '__current__';
     saveSessions();
@@ -1262,15 +1742,9 @@
     if (!text || !isConnected) return;
     input.value = '';
     // 同时发到侧边栏
-    addUserMessage(text);
-    document.getElementById('sendBtn').disabled = true;
-    ws.send(JSON.stringify({ type: 'chat', content: text, pageContext: getPageContext() }));
-    // 更新当前会话
+    sendChatText(text);
     const cur = chatSessions.find(x => x.id === '__current__');
-    if (cur) {
-      cur.messages.push({ role:'user', text, time: Date.now() });
-      cur.page = currentPage;
-    }
+    if (cur) cur.page = currentPage;
     loadSessionIntoFs('__current__');
   }
 
@@ -1304,12 +1778,22 @@
       const raw = el.dataset.rawText;
       if (raw) el.innerHTML = formatAgentMessageHtml(raw);
     });
+    syncChatIframeFull();
   }
 
   // ===== 初始化 =====
+  window.addEventListener('message', handleChatIframeMessage);
+  window.addEventListener('resize', () => {
+    if (!isNarrowLayout()) {
+      document.getElementById('chatIframeOverlay').classList.remove('open');
+    }
+    updateChatToggleLabel();
+  });
+
   window.onload = () => {
     initSessions();
     loadDashboard();
+    updateChatToggleLabel();
     document.getElementById('fsMessages').addEventListener('click', handlePreviewLinkClick, true);
     document.getElementById('chatMessages').addEventListener('click', handlePreviewLinkClick, true);
     Promise.all([
