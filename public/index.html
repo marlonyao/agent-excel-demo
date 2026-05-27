@@ -172,6 +172,7 @@
     .fullscreen-overlay {
       display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
       background: white; z-index: 9999; flex-direction: row;
+      overflow: hidden;
     }
     .fullscreen-overlay.active { display: flex; }
 
@@ -191,8 +192,8 @@
     .fs-new-chat-btn { margin: 8px; padding: 10px; background: #667eea; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 13px; }
     .fs-new-chat-btn:hover { background: #5a6fd6; }
 
-    /* 全屏右侧：聊天内容 */
-    .fs-chat { flex: 1; display: flex; flex-direction: column; }
+    /* 全屏中间：主聊天区（副屏展开时会缩短） */
+    .fs-chat { flex: 1 1 0; display: flex; flex-direction: column; min-width: 280px; overflow: hidden; }
     .fs-chat-header { padding: 14px 20px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
     .fs-chat-header h3 { font-size: 16px; color: #333; }
     .fs-chat-header .fs-page-tag { font-size: 12px; color: #999; background: #f0f0f0; padding: 2px 8px; border-radius: 4px; }
@@ -205,9 +206,32 @@
     .fs-input-area button { padding: 12px 24px; background: #667eea; color: white; border: none; border-radius: 10px; font-size: 15px; cursor: pointer; }
     .fs-input-area button:hover { background: #5a6fd6; }
 
-    /* 全屏预览面板（右侧可收起） */
-    .fs-preview { width: 0; overflow: hidden; border-left: 1px solid #e0e0e0; transition: width 0.3s; display: flex; flex-direction: column; background: #fff; flex-shrink: 0; }
-    .fs-preview.open { width: 480px; }
+    /* 全屏右侧副屏：与主聊天区并列，展开时挤占主屏宽度 */
+    .fs-preview {
+      flex: 0 0 0;
+      width: 0;
+      min-width: 0;
+      max-width: 0;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      background: #fff;
+      border-left: none;
+      transition: flex-basis 0.25s ease, width 0.25s ease, min-width 0.25s ease, max-width 0.25s ease;
+    }
+    .fs-preview.open {
+      flex: 0 0 420px;
+      width: 420px;
+      min-width: 420px;
+      max-width: none;
+      border-left: 1px solid #e0e0e0;
+    }
+    .fs-preview.open.wide {
+      flex: 0 0 520px;
+      width: 520px;
+      min-width: 520px;
+      max-width: none;
+    }
     .fs-preview-header { padding: 12px 16px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; background: #f8f9fa; }
     .fs-preview-header h4 { font-size: 14px; color: #333; margin: 0; }
     .fs-preview-close { background: none; border: none; font-size: 18px; cursor: pointer; color: #666; padding: 2px 6px; border-radius: 4px; }
@@ -223,6 +247,7 @@
     /* 聊天中的可点击链接 */
     .preview-link { color: #667eea; cursor: pointer; text-decoration: underline; text-decoration-style: dotted; }
     .preview-link:hover { color: #5a6fd6; }
+    .fs-messages .preview-link, .chat-messages .preview-link { pointer-events: auto; position: relative; z-index: 1; }
   </style>
 </head>
 <body>
@@ -348,7 +373,7 @@
         <!-- 动态生成 -->
       </div>
     </div>
-    <!-- 右侧聊天内容 -->
+    <!-- 中间：主聊天区 -->
     <div class="fs-chat">
       <div class="fs-chat-header">
         <h3 id="fsChatTitle">当前会话</h3>
@@ -364,7 +389,7 @@
         <button onclick="fsSend()">发送</button>
       </div>
     </div>
-    <!-- 预览面板（右侧可收起） -->
+    <!-- 右侧副屏：展开时缩短主聊天区 -->
     <div class="fs-preview" id="fsPreview">
       <div class="fs-preview-header">
         <h4 id="fsPreviewTitle">预览</h4>
@@ -813,11 +838,17 @@
           const container = document.getElementById('chatMessages');
           const oldSummary = container.querySelector('.auto-summary');
           if (oldSummary) oldSummary.remove();
+          const summaryText = '📋 **' + currentExcelFile + '**\n' + msg.content;
           const div = document.createElement('div');
-          div.className = 'message system auto-summary';
+          div.className = 'message agent auto-summary';
           div.style.cssText = 'background:#f0f4ff;padding:10px 14px;border-radius:8px;font-size:13px;line-height:1.6;';
-          div.innerHTML = '📋 <strong>' + escHtml(currentExcelFile) + '</strong><br>' + msg.content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
+          div.dataset.rawText = summaryText;
+          div.innerHTML = formatAgentMessageHtml(summaryText);
           container.appendChild(div);
+          syncCurrentSession('agent', summaryText);
+          if (document.getElementById('fullscreenChat').classList.contains('active') && activeSessionId === '__current__') {
+            loadSessionIntoFs('__current__');
+          }
           scrollChat();
         } else {
           addAgentMessage(msg.content);
@@ -933,8 +964,16 @@
   }
 
   // ===== Chat UI =====
+  function formatAgentMessageHtml(text) {
+    const html = text
+      .replace(/```([\s\S]*?)```/g, '<pre>$1</pre>')
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/\n/g, '<br>');
+    return renderPreviewLinks(html);
+  }
   function addUserMessage(t) { const d=document.createElement('div');d.className='message user';d.textContent=t;document.getElementById('chatMessages').appendChild(d);scrollChat(); }
-  function addAgentMessage(t) { const d=document.createElement('div');d.className='message agent';let html=t.replace(/```([\s\S]*?)```/g,'<pre>$1</pre>').replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/\n/g,'<br>');html=renderPreviewLinks(html);d.innerHTML=html;document.getElementById('chatMessages').appendChild(d);scrollChat(); }
+  function addAgentMessage(t) { const d=document.createElement('div');d.className='message agent';d.dataset.rawText=t;d.innerHTML=formatAgentMessageHtml(t);document.getElementById('chatMessages').appendChild(d);scrollChat(); }
   function addSystemMessage(t) { const d=document.createElement('div');d.className='message system';d.textContent=t;document.getElementById('chatMessages').appendChild(d);scrollChat(); }
   function addStatusMessage(t) { removeStatusMessage(); const d=document.createElement('div');d.className='status-msg';d.id='curStatus';d.textContent=t;document.getElementById('chatMessages').appendChild(d);scrollChat(); }
   function removeStatusMessage() { const e=document.getElementById('curStatus'); if(e)e.remove(); }
@@ -977,30 +1016,25 @@
     saveSessions();
   }
 
-  function openFullscreen() {
-    // 把当前侧边栏消息同步到全屏
-    syncToFullscreen();
+  async function ensurePreviewCache() {
+    if (!cache.files) {
+      cache.files = await (await fetch('/api/files')).json();
+    }
+    if (!cache.notes) {
+      cache.notes = await (await fetch('/api/notes')).json();
+    }
+  }
+
+  async function openFullscreen() {
+    await ensurePreviewCache();
+    syncSidebarToCurrentSession();
+    activeSessionId = '__current__';
     renderHistoryList();
+    loadSessionIntoFs('__current__');
     document.getElementById('fullscreenChat').classList.add('active');
   }
   function closeFullscreen() { document.getElementById('fullscreenChat').classList.remove('active'); }
 
-  function syncToFullscreen() {
-    // 当前会话就是最新的
-    if (!activeSessionId) {
-      const msgs = getPanelMessages();
-      if (chatSessions.length === 0 || chatSessions[0].id !== '__current__') {
-        chatSessions.unshift({ id: '__current__', title: '当前会话 · ' + pageNames[currentPage], messages: msgs, page: currentPage, createdAt: new Date().toLocaleString() });
-      } else {
-        chatSessions[0].messages = msgs;
-        chatSessions[0].title = '当前会话 · ' + pageNames[currentPage];
-        chatSessions[0].page = currentPage;
-      }
-      activeSessionId = '__current__';
-    }
-    renderHistoryList();
-    loadSessionIntoFs(activeSessionId);
-  }
 
   function getPanelMessages() {
     const els = document.getElementById('chatMessages').children;
@@ -1010,9 +1044,23 @@
       let role = 'system';
       if (cls.includes('user')) role = 'user';
       else if (cls.includes('agent')) role = 'agent';
-      msgs.push({ role, text: el.textContent.trim() });
+      const text = el.dataset.rawText || el.textContent.trim();
+      msgs.push({ role, text });
     }
     return msgs;
+  }
+
+  function syncSidebarToCurrentSession() {
+    let cur = chatSessions.find(x => x.id === '__current__');
+    if (!cur) {
+      cur = { id: '__current__', title: '当前会话 · ' + (pageNames[currentPage] || currentPage), messages: [], page: currentPage, createdAt: new Date().toLocaleString() };
+      chatSessions.unshift(cur);
+    }
+    const panelMsgs = getPanelMessages();
+    if (panelMsgs.length) cur.messages = panelMsgs;
+    cur.page = currentPage;
+    cur.title = '当前会话 · ' + (pageNames[currentPage] || currentPage);
+    saveSessions();
   }
 
   function renderHistoryList() {
@@ -1033,11 +1081,12 @@
 
   // ===== 预览面板 =====
   function openPreview(type, id) {
+    const previewId = Number(id);
     // 如果不在全屏模式，侧边栏模式：直接操作
     const isFullscreen = document.getElementById('fullscreenChat').classList.contains('active');
     if (!isFullscreen) {
       if (type === 'excel') {
-        const file = (cache.files || []).find(f => f.id === id);
+        const file = (cache.files || []).find(f => f.id === previewId);
         if (file) openExcel(file.id, file.name);
       } else if (type === 'note') {
         switchPage('notes');
@@ -1050,10 +1099,10 @@
     const title = document.getElementById('fsPreviewTitle');
 
     if (type === 'excel') {
-      const file = (cache.files || []).find(f => f.id === id);
+      const file = (cache.files || []).find(f => f.id === previewId);
       if (!file) return;
       title.textContent = '📊 ' + file.name;
-      panel.style.width = '600px';
+      panel.classList.add('wide');
       body.style.padding = '0';
       // 用 HTML 表格渲染 Excel 数据
       const celldata = getFileCelldata(file.name);
@@ -1082,9 +1131,9 @@
       html += '</table>';
       body.innerHTML = html;
     } else if (type === 'note') {
-      panel.style.width = '480px';
+      panel.classList.remove('wide');
       body.style.padding = '16px';
-      const note = (cache.notes || []).find(n => n.id === id);
+      const note = (cache.notes || []).find(n => n.id === previewId);
       if (!note) return;
       title.textContent = '📝 ' + note.title;
       body.innerHTML = '<div class="note-preview-title">' + escHtml(note.title) + '</div>' +
@@ -1095,32 +1144,81 @@
   }
   function closePreview() {
     const panel = document.getElementById('fsPreview');
-    panel.classList.remove('open');
-    panel.style.width = '';
+    panel.classList.remove('open', 'wide');
     const body = document.getElementById('fsPreviewBody');
     body.innerHTML = '';
     body.style.padding = '16px';
   }
 
-  function renderPreviewLinks(html) {
-    // 文件名
-    const fileNames = ['销售数据_Q1.xlsx', '项目预算.xlsx', '员工花名册.xlsx'];
-    fileNames.forEach(name => {
-      const file = (cache.files || []).find(f => f.name === name);
-      if (file) {
-        const escaped = name.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-        // 匹配: 纯文本、<strong>包裹的、| 表格中的
-        html = html.replace(new RegExp('(<strong>)?' + escaped + '(<\/strong>)?', 'g'), '<span class="preview-link" onclick="openPreview(\'excel\',' + file.id + ')">' + name + '</span>');
-      }
+  function makePreviewLink(type, id, label) {
+    return '<span class="preview-link" role="button" tabindex="0" data-preview-type="' + type + '" data-preview-id="' + id + '">' + escHtml(label) + '</span>';
+  }
+
+  function replacePlainName(html, escaped, link) {
+    return html.replace(new RegExp(escaped, 'g'), (match, offset, str) => {
+      const before = str.slice(0, offset);
+      if (before.match(/data-preview-id="\d+"[^>]*>[^<]*$/)) return match;
+      const lastOpen = before.lastIndexOf('<');
+      const lastClose = before.lastIndexOf('>');
+      if (lastOpen > lastClose) return match;
+      return link;
     });
-    // 笔记标题
-    if (cache.notes) {
-      cache.notes.forEach(note => {
-        const escaped = note.title.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-        html = html.replace(new RegExp('(<strong>)?' + escaped + '(<\/strong>)?', 'g'), '<span class="preview-link" onclick="openPreview(\'note\',' + note.id + ')">' + note.title + '</span>');
-      });
-    }
+  }
+
+  function getKnownFiles() {
+    const fromApi = (cache.files && cache.files.length) ? cache.files : [];
+    const fromData = Object.keys(FILE_DATA).map((name, i) => ({ id: i + 1, name }));
+    const merged = [...fromApi];
+    fromData.forEach(f => {
+      if (!merged.some(x => x.name === f.name)) merged.push(f);
+    });
+    return merged.length ? merged : [
+      { id: 1, name: '销售数据_Q1.xlsx' },
+      { id: 2, name: '项目预算.xlsx' },
+      { id: 3, name: '员工花名册.xlsx' },
+    ];
+  }
+
+  function linkifyKnownName(html, escaped, link) {
+    const patterns = [
+      '\\*\\*' + escaped + '\\*\\*',
+      '(?:<strong>)' + escaped + '(?:</strong>)',
+      '<code>' + escaped + '</code>',
+      '[「『""]' + escaped + '[」』""]',
+    ];
+    patterns.forEach(pat => {
+      html = html.replace(new RegExp(pat, 'g'), link);
+    });
+    return replacePlainName(html, escaped, link);
+  }
+
+  function renderPreviewLinks(html) {
+    const files = getKnownFiles();
+    files.forEach(file => {
+      const name = file.name;
+      const escaped = name.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+      const link = makePreviewLink('excel', file.id, name);
+      html = linkifyKnownName(html, escaped, link);
+    });
+    const notes = cache.notes || [];
+    notes.forEach(note => {
+      const escaped = note.title.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+      const link = makePreviewLink('note', note.id, note.title);
+      html = linkifyKnownName(html, escaped, link);
+    });
     return html;
+  }
+
+  function handlePreviewLinkClick(e) {
+    const el = e.target.closest('[data-preview-type]');
+    if (!el) return;
+    e.preventDefault();
+    e.stopPropagation();
+    openPreview(el.dataset.previewType, el.dataset.previewId);
+  }
+
+  function shouldFormatAsAgent(role, text) {
+    return role === 'agent' || (role === 'system' && /\.xlsx|\.xls/i.test(text));
   }
 
   function loadSessionIntoFs(id) {
@@ -1133,7 +1231,7 @@
     const container = document.getElementById('fsMessages');
     container.innerHTML = s.messages.map(m => {
       const cls = m.role === 'user' ? 'message user' : m.role === 'agent' ? 'message agent' : 'message system';
-      const text = m.role === 'agent' ? renderPreviewLinks(m.text.replace(/```([\s\S]*?)```/g,'<pre>$1</pre>').replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\n/g,'<br>')) : escHtml(m.text);
+      const text = shouldFormatAsAgent(m.role, m.text) ? formatAgentMessageHtml(m.text) : escHtml(m.text);
       return '<div class="' + cls + '">' + text + '</div>';
     }).join('');
     container.scrollTop = container.scrollHeight;
@@ -1197,13 +1295,27 @@
     saveSessions();
   }
 
+  function refreshPreviewLinksIfNeeded() {
+    const fsActive = document.getElementById('fullscreenChat').classList.contains('active');
+    if (fsActive && activeSessionId) {
+      loadSessionIntoFs(activeSessionId);
+    }
+    document.querySelectorAll('#chatMessages .message.agent').forEach(el => {
+      const raw = el.dataset.rawText;
+      if (raw) el.innerHTML = formatAgentMessageHtml(raw);
+    });
+  }
+
   // ===== 初始化 =====
   window.onload = () => {
     initSessions();
     loadDashboard();
-    // 预加载文件和笔记数据（用于链接渲染）
-    fetch('/api/files').then(r=>r.json()).then(d=>{cache.files=d;});
-    fetch('/api/notes').then(r=>r.json()).then(d=>{cache.notes=d;});
+    document.getElementById('fsMessages').addEventListener('click', handlePreviewLinkClick, true);
+    document.getElementById('chatMessages').addEventListener('click', handlePreviewLinkClick, true);
+    Promise.all([
+      fetch('/api/files').then(r => r.json()).then(d => { cache.files = d; }),
+      fetch('/api/notes').then(r => r.json()).then(d => { cache.notes = d; }),
+    ]).then(refreshPreviewLinksIfNeeded);
     connectWS();
   };
   </script>
