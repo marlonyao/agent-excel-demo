@@ -140,8 +140,23 @@ const EXCEL_TOOLS = [
     type: 'function',
     function: {
       name: 'get_sheet_info',
-      description: '获取当前工作表的基本信息',
+      description: '获取当前工作表的基本信息，包括行列数、表头列名、列数。返回的 headers 是第1行的值，用于了解每列的含义。',
       parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'insert_column',
+      description: '在指定位置插入一个新列。插入后，原位置及右侧的列会向右移动。',
+      parameters: {
+        type: 'object',
+        properties: {
+          col: { type: 'string', description: '插入位置的列号字母，插入后新列占据此位置，原列右移' },
+          header: { type: 'string', description: '新列的表头名称' },
+        },
+        required: ['col', 'header'],
+      },
     },
   },
   {
@@ -296,12 +311,13 @@ async function excelAgent(task, sessionId) {
       role: 'system',
       content: `你是一个 Excel 操作助手。用户会用自然语言描述想要对 Excel 表格做的操作。
 你需要将用户的意图转换为具体的 Excel 工具调用。
-规则：
-1. 如果用户想选择/打开文件，先调用 list_files 查看可用文件，再用 select_file 打开
-2. 先了解当前数据（必要时调用 get_sheet_info 或 get_range_values）
-3. 然后执行操作
+
+重要规则：
+1. 操作前必须先调用 get_sheet_info 了解表头和列含义
+2. 如果用户要增加新列（如"增加4月销售额"），必须先调用 insert_column 在正确位置插入列，再用 set_cell_value 或 set_range_values 填入数据
+3. 如果用户要选择/打开文件，先调用 list_files 查看可用文件，再用 select_file 打开
 4. 操作完成后，用简洁的中文告诉用户你做了什么
-5. 对于求和、平均值等计算，使用公式（如 =SUM(B1:B10)）`,
+5. 对于求和、平均值等计算，使用公式（如 =SUM(B2:B10)）`,
     },
     { role: 'user', content: task },
   ];
