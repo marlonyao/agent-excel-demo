@@ -490,6 +490,7 @@
       type: 'sync',
       connected: isConnected,
       pageLabel: pageLabels[currentPage] || currentPage,
+      selectionHint: formatSelectionSummary(getExcelSelectionInfo()),
       suggestions: currentSuggestions,
       sendDisabled: sendBtn ? sendBtn.disabled : false,
       messages: collectPanelMessagesForIframe(),
@@ -540,6 +541,7 @@
     document.querySelectorAll('.menu-item').forEach(el => el.classList.toggle('active', el.dataset.page === page));
     document.querySelectorAll('.page').forEach(el => el.classList.toggle('active', el.id === 'page-' + page));
     postToChatIframe({ type: 'pageLabel', label: pageLabels[page] || page });
+    pushChatSelectionHint();
     if (page === 'excel' && !luckysheetReady && currentExcelFile) loadLuckysheet();
     loadPage(page);
     requestSuggestions();
@@ -601,6 +603,7 @@
   function openExcel(id, name) {
     if (luckysheetReady && currentExcelFile === name) {
       updateExcelChrome(name);
+      pushChatSelectionHint();
       return;
     }
     currentExcelFile = name;
@@ -659,12 +662,17 @@
   }
 
   // ===== 聊天面板 =====
+  function focusSidebarChatInput() {
+    postToChatIframe({ type: 'focusInput' });
+  }
+
   function toggleChat() {
     const p = document.getElementById('chatPanel');
     p.classList.toggle('collapsed');
     if (!p.classList.contains('collapsed')) {
       syncChatIframeFull();
       if (!chatIframeReady) postToChatIframe({ type: 'ping' });
+      focusSidebarChatInput();
     }
     updateChatToggleLabel();
   }
@@ -674,6 +682,64 @@
     if (!isConnected) return;
     ws.send(JSON.stringify({ type: 'get_suggestions', pageContext: getPageContext() }));
   }
+  function normalizeLuckysheetRange(range) {
+    if (!range) return null;
+    const list = Array.isArray(range) ? range : [range];
+    for (const item of list) {
+      if (item && item.row && item.column) return item;
+    }
+    return null;
+  }
+
+  function getExcelSelectionInfo() {
+    if (!luckysheetReady || currentPage !== 'excel') return null;
+    try {
+      const r0 = normalizeLuckysheetRange(luckysheet.getRange());
+      if (!r0) return null;
+      const sr = r0.row[0], er = r0.row[1], sc = r0.column[0], ec = r0.column[1];
+      const rowCount = er - sr + 1;
+      const colCount = ec - sc + 1;
+      const rangeStr = rowCount === 1 && colCount === 1
+        ? `${indexToCol(sc)}${sr + 1}`
+        : `${indexToCol(sc)}${sr + 1}:${indexToCol(ec)}${er + 1}`;
+      const rangeData = [];
+      for (let r = sr; r <= er; r++) {
+        const row = [];
+        for (let c = sc; c <= ec; c++) {
+          const v = luckysheet.getCellValue(r, c);
+          row.push(v != null ? v : '');
+        }
+        rangeData.push(row);
+      }
+      let headers = [];
+      try {
+        const sheetMeta = buildExcelPageData(luckysheet.getSheetData());
+        headers = (sheetMeta.headers || []).slice(sc, ec + 1);
+      } catch (e) { /* ignore */ }
+      return { rangeStr, sr, er, sc, ec, rowCount, colCount, data: rangeData, headers };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function formatSelectionSummary(info) {
+    if (!info) return '';
+    const { rangeStr, rowCount, colCount, sr, er, sc, ec } = info;
+    if (rowCount === 1 && colCount === 1) return `已选单元格 ${rangeStr}`;
+    const rows = sr === er ? `第 ${sr + 1} 行` : `第 ${sr + 1}-${er + 1} 行`;
+    const cols = sc === ec ? `${indexToCol(sc)} 列` : `${indexToCol(sc)}-${indexToCol(ec)} 列`;
+    return `已选 ${rangeStr} · ${rows} · ${cols}`;
+  }
+
+  let selectionHintTimer = null;
+  function pushChatSelectionHint() {
+    clearTimeout(selectionHintTimer);
+    selectionHintTimer = setTimeout(() => {
+      const text = formatSelectionSummary(getExcelSelectionInfo());
+      postToChatIframe({ type: 'selectionHint', text });
+    }, 80);
+  }
+
   function getPageContext() {
     const ctx = { page: currentPage };
     if (currentPage === 'dashboard' && cache.dashboard) ctx.data = cache.dashboard;
@@ -687,32 +753,14 @@
             fileName: currentExcelFile || '未命名',
             ...buildExcelPageData(sd),
           };
-          // 获取当前选区
-          try {
-            const range = luckysheet.getRange();
-            if (range && range.length > 0) {
-              const r0 = range[0];
-              const sr = r0.row[0], er = r0.row[1], sc = r0.column[0], ec = r0.column[1];
-              // 列号转字母
-              const colLetter = (i) => String.fromCharCode(65+i);
-              const rangeStr = `${colLetter(sc)}${sr+1}:${colLetter(ec)}${er+1}`;
-              // 获取选区数据
-              const rangeData = [];
-              for (let r = sr; r <= er; r++) {
-                const row = [];
-                for (let c = sc; c <= ec; c++) {
-                  const v = luckysheet.getCellValue(r, c);
-                  row.push(v != null ? v : '');
-                }
-                rangeData.push(row);
-              }
-              ctx.data.selectedRange = rangeStr;
-              ctx.data.selectedData = rangeData;
-              ctx.data.selectedHeaders = (ctx.data.headers || []).slice(sc, ec + 1);
-            }
-          } catch(e2) {}
+          const sel = getExcelSelectionInfo();
+          if (sel) {
+            ctx.data.selectedRange = sel.rangeStr;
+            ctx.data.selectedData = sel.data;
+            ctx.data.selectedHeaders = sel.headers;
+          }
         }
-      } catch(e) {}
+      } catch (e) { /* ignore */ }
     }
     return ctx;
   }
@@ -911,8 +959,14 @@
         name: 'Sheet1', status: 1, order: 0, celldata,
         config: { columnlen: columnlen || LUCKYSHEET_COLUMN_LEN },
       }],
+      hook: {
+        rangeSelect: function () {
+          pushChatSelectionHint();
+        },
+      },
     });
     luckysheetReady = true;
+    setTimeout(pushChatSelectionHint, 0);
   }
 
   function loadLuckysheet() {
@@ -938,6 +992,7 @@
     document.getElementById('statusText').textContent = c ? 'Agent 已连接' : '未连接';
     const s = document.getElementById('settingStatus');
     if (s) s.innerHTML = c ? '<span style="color:#4caf50">● 已连接</span>' : '<span style="color:#f44336">● 未连接</span>';
+    postToChatIframe({ type: 'connected', connected: c });
   }
 
   // ===== 消息处理 =====
@@ -1770,6 +1825,7 @@
     initSessions();
     loadDashboard();
     updateChatToggleLabel();
+    document.getElementById('chatPanel').addEventListener('mousedown', focusSidebarChatInput);
     document.getElementById('fsMessages').addEventListener('click', handlePreviewLinkClick, true);
     document.getElementById('chatMessages').addEventListener('click', handlePreviewLinkClick, true);
     Promise.all([

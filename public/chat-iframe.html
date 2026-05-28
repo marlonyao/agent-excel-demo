@@ -14,16 +14,47 @@
       flex-direction: column;
     }
     .chat-header {
-      padding: 14px 18px;
-      border-bottom: 1px solid #eee;
+      padding: 12px 16px 8px;
+      border-bottom: none;
       font-weight: 600;
       font-size: 15px;
       color: #333;
       display: flex;
       justify-content: space-between;
       align-items: center;
+      gap: 8px;
       flex-shrink: 0;
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      background: #fff;
     }
+    .chat-header-title { flex-shrink: 0; }
+    .chat-header .chat-page-label {
+      flex: 1;
+      min-width: 0;
+      font-size: 12px;
+      color: #999;
+      font-weight: 400;
+      text-align: right;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .chat-selection-bar {
+      display: none;
+      flex-shrink: 0;
+      padding: 0 16px 8px;
+      font-size: 11px;
+      line-height: 1.35;
+      color: #888;
+      background: #fff;
+      border-bottom: 1px solid #eee;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .chat-selection-bar.visible { display: block; }
     .fullscreen-btn {
       background: none; border: none; cursor: pointer;
       font-size: 16px; padding: 2px 6px; border-radius: 4px; color: #999;
@@ -87,11 +118,12 @@
 </head>
 <body>
   <div class="chat-header">
-    <span>💬 智能助手</span>
-    <span style="display:flex;align-items:center;gap:6px;">
-      <span id="chatPageLabel" style="font-size:12px;color:#999;font-weight:400;">仪表盘</span>
-      <button class="fullscreen-btn" id="fsBtn" title="全屏模式">⛶</button>
-    </span>
+    <span class="chat-header-title">💬 智能助手</span>
+    <span id="chatPageLabel" class="chat-page-label">仪表盘</span>
+    <button class="fullscreen-btn" id="fsBtn" title="全屏模式">⛶</button>
+  </div>
+  <div id="chatSelectionBar" class="chat-selection-bar">
+    <span id="chatSelectionHint"></span>
   </div>
   <div class="suggestions" id="suggestionsArea">
     <div class="label">💡 推荐问题</div>
@@ -207,9 +239,19 @@
     document.getElementById('sendBtn').disabled = disabled;
   }
 
+  function setSelectionHint(text) {
+    const t = (text || '').trim();
+    const bar = document.getElementById('chatSelectionBar');
+    const el = document.getElementById('chatSelectionHint');
+    el.textContent = t;
+    bar.classList.toggle('visible', !!t);
+    bar.title = t;
+  }
+
   function syncFull(data) {
     if (data.connected != null) isConnected = data.connected;
     if (data.pageLabel) document.getElementById('chatPageLabel').textContent = data.pageLabel;
+    if (data.selectionHint != null) setSelectionHint(data.selectionHint);
     if (data.suggestions) renderSuggestions(data.suggestions);
     if (data.sendDisabled != null) setSendDisabled(data.sendDisabled);
     if (data.messages) {
@@ -229,8 +271,13 @@
     const input = document.getElementById('chatInput');
     const text = input.value.trim();
     if (!text || !isConnected) return;
+    if (document.getElementById('sendBtn').disabled) return;
     closeDropdown();
     post('send', { content: text });
+  }
+
+  function isEnterKey(e) {
+    return e.key === 'Enter' || e.key === 'NumpadEnter';
   }
 
   function closeDropdown() {
@@ -264,29 +311,34 @@
   function onChatKeydown(e) {
     const dd = document.getElementById('inputDropdown');
     const items = dd.querySelectorAll('.input-dropdown-item');
-    if (dd.classList.contains('show') && items.length) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        dropdownIndex = Math.min(dropdownIndex + 1, items.length - 1);
-        items.forEach((it, i) => it.classList.toggle('active', i === dropdownIndex));
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        dropdownIndex = Math.max(dropdownIndex - 1, 0);
-        items.forEach((it, i) => it.classList.toggle('active', i === dropdownIndex));
-      } else if (e.key === 'Enter' && dropdownIndex >= 0) {
-        e.preventDefault();
-        items[dropdownIndex].click();
-        return;
-      } else if (e.key === 'Escape') {
-        closeDropdown();
-        return;
-      }
-    }
-    if (e.key === 'Enter') {
+    const dropdownOpen = dd.classList.contains('show') && items.length > 0;
+
+    if (dropdownOpen && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
       e.preventDefault();
-      closeDropdown();
-      sendMessage();
+      if (e.key === 'ArrowDown') {
+        dropdownIndex = Math.min(dropdownIndex + 1, items.length - 1);
+      } else {
+        dropdownIndex = Math.max(dropdownIndex - 1, 0);
+      }
+      items.forEach((it, i) => it.classList.toggle('active', i === dropdownIndex));
+      return;
     }
+    if (e.key === 'Escape' && dropdownOpen) {
+      closeDropdown();
+      return;
+    }
+    if (!isEnterKey(e)) return;
+    // 中文输入法组词确认时不当作发送
+    if (e.isComposing || e.keyCode === 229) return;
+
+    if (dropdownOpen && dropdownIndex >= 0) {
+      e.preventDefault();
+      items[dropdownIndex].click();
+      return;
+    }
+    e.preventDefault();
+    closeDropdown();
+    sendMessage();
   }
 
   document.getElementById('chatInput').addEventListener('input', onChatInput);
@@ -321,11 +373,20 @@
       case 'pageLabel':
         document.getElementById('chatPageLabel').textContent = msg.label;
         break;
+      case 'selectionHint':
+        setSelectionHint(msg.text);
+        break;
       case 'sendDisabled':
         setSendDisabled(msg.disabled);
         break;
       case 'clearInput':
         document.getElementById('chatInput').value = '';
+        break;
+      case 'connected':
+        if (msg.connected != null) isConnected = msg.connected;
+        break;
+      case 'focusInput':
+        document.getElementById('chatInput').focus();
         break;
       case 'ack':
         stopReadyRetry();
